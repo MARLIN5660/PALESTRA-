@@ -147,7 +147,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="ffoto" accept="image/*" hidden>
 <script>
 'use strict';
-const APPV='1.7';
+const APPV='1.8';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -639,8 +639,8 @@ function series(key){
 }
 function chartSVG(pts,unit){
   if(!pts.length)return'<div class="muted" style="margin-top:10px">Ancora nessun dato per questo esercizio.</div>';
-  const W=340,H=200,pl=36,pr=12,pt_=14,pb=26,vs=pts.map(p=>p.v);
-  let lo=Math.min(...vs),hi=Math.max(...vs);if(lo===hi){lo-=2;hi+=2}const pad=(hi-lo)*.12;lo=Math.max(0,lo-pad);hi+=pad;
+  const W=340,H=220,pl=36,pr=16,pt_=14,pb=44,vs=pts.map(p=>p.v);
+  let lo=Math.min(...vs),hi=Math.max(...vs);if(lo===hi){lo-=2;hi+=2}const pad=(hi-lo)*.12;lo=Math.max(0,Math.floor(lo-pad));const stp=Math.max(1,Math.ceil((hi+pad-lo)/3));hi=lo+3*stp;
   let t0=pts[0].t,t1=pts.at(-1).t;if(t0===t1){t0-=864e5*3;t1+=864e5*3}
   const x=t=>pl+(t-t0)/(t1-t0)*(W-pl-pr),y=v=>pt_+(1-(v-lo)/(hi-lo))*(H-pt_-pb);
   let s=`<svg viewBox="0 0 ${W} ${H}">`;
@@ -648,7 +648,12 @@ function chartSVG(pts,unit){
   const d=pts.map(p=>`${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
   s+=`<polygon class="ar" points="${x(pts[0].t)},${H-pb} ${d} ${x(pts.at(-1).t)},${H-pb}"/><polyline class="pl" points="${d}"/>`;
   pts.forEach(p=>{s+=`<circle cx="${x(p.t)}" cy="${y(p.v)}" r="3.5"/>`});
-  s+=`<text x="${pl}" y="${H-8}">${fmtD(pts[0].t)}</text><text x="${W-pr}" y="${H-8}" text-anchor="end">${fmtD(pts.at(-1).t)}</text><text x="${pl}" y="9">${unit}</text></svg>`;
+  // data sotto ogni cambio di peso (più prima e ultima), senza sovrapposizioni
+  let lastX=-99;
+  pts.forEach((p,i)=>{const ch=i===0||i===pts.length-1||p.v!==pts[i-1].v;if(!ch)return;const xx=x(p.t);if(xx-lastX<16&&i!==pts.length-1)return;lastX=xx;
+    s+=`<line class="gl" x1="${xx}" x2="${xx}" y1="${H-pb}" y2="${H-pb+4}"/><text transform="translate(${xx+3} ${H-pb+8}) rotate(-50)" text-anchor="end">${fmtD(p.t)}</text>`;
+    s+=`<text x="${xx}" y="${y(p.v)-7}" text-anchor="middle" style="fill:var(--tx);font-weight:700">${fmtKg(p.v)}</text>`});
+  s+=`<text x="${pl}" y="9">${unit}</text></svg>`;
   return s;
 }
 V.progressi=()=>{
