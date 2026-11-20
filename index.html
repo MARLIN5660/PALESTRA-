@@ -146,7 +146,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="fimp" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const APPV='1.4';
+const APPV='1.5';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -188,7 +188,7 @@ async function load(){
 const activePlan=()=>S.plans.find(p=>p.id===S.set.activeId)||[...S.plans].sort((a,b)=>(b.inizio||'').localeCompare(a.inizio||''))[0];
 /* ---------- schede iniziali ---------- */
 const PROG1=[{rip:15,serie:3},{rip:12,serie:4},{rip:10,serie:5},{rip:8,serie:5}];
-const RISC={key:'riscaldamento',nome:'Riscaldamento bike/run',tipo:'cardio',minuti:'5–10',attrezzo:'Bike'};
+const RISC={key:'riscaldamento',nome:'Riscaldamento run/bike',tipo:'cardio',minuti:'5–10',attrezzo:'Run'};
 const FIN=m=>({key:'finale',nome:'Finale run/bike',tipo:'cardio',minuti:m,attrezzo:'Run'});
 const SEED=[
 {id:'scheda-1',nome:'Scheda 1',inizio:'2026-10-07',durata:'',recupero:'30"–60"',progressione:PROG1,sessioni:[{nome:'Allenamento',esercizi:[
@@ -231,6 +231,10 @@ const START2={'affondi-indietro':{pesi:[4,5,6,8]},'leg-extension':{peso:10,rip:1
 async function migrate(){
   if((S.set.dataV||1)<2)await migrate2();
   if(S.set.dataV<3)await migrate3();
+  if(S.set.dataV<4){
+    for(const p of S.plans){let ch=false;p.sessioni.forEach(s=>s.esercizi.forEach(e=>{if(e.key==='riscaldamento'||e.key==='finale'){e.attrezzo='Run';if(e.key==='riscaldamento')e.nome='Riscaldamento run/bike';ch=true}}));if(ch)await dbPut('plans',p)}
+    S.set.dataV=4;await saveSet();
+  }
 }
 async function migrate2(){
   const p=normPlan(SEED.find(x=>x.id==='scheda-2'));await dbPut('plans',p);S.plans=S.plans.filter(x=>x.id!=='scheda-2').concat(p);
@@ -399,7 +403,7 @@ function buildEx(p,ex,wk){
   else if(e.tipo==='piramide'){e.sets=(ex.piramide||[]).map((r,i)=>({rip:r,peso:m.pesi&&m.pesi[i]!=null?m.pesi[i]:(m.peso??null),f:false}))}
   else if(e.tipo==='tempo'){e.durata=ex.durata;e.sets=n(ex.serie)}
   else if(e.tipo==='libero'){e.sets=n(ps.serie)}
-  else if(e.tipo==='cardio'){const c=m.cardio||{};e.cardio={attrezzo:c.attrezzo||ex.attrezzo||'Bike',minuti:c.minuti??null,velocita:c.velocita??null,livello:c.livello??null,f:false}}
+  else if(e.tipo==='cardio'){const c=m.cardio||{};e.cardio={attrezzo:c.attrezzo||ex.attrezzo||'Run',minuti:c.minuti??null,velocita:c.velocita??null,livello:c.livello??null,f:false}}
   return e;
 }
 function startWorkout(si){
@@ -507,7 +511,7 @@ function exCard(e,i,open,cur){
     if(e.tipo==='tempo'&&ds)h+=`<button class="btn big pri" data-a="tempo" ${D} data-s="${ds}">▶ Avvia ${fmtRest(ds)}</button>`;
   }else if(e.tipo==='cardio'){
     const c=e.cardio;
-    h+=`<div class="seg">${['Bike','Run'].map(a=>`<button class="${c.attrezzo===a?'on':''}" data-a="att" ${D} data-v="${a}">${a}</button>`).join('')}</div>`;
+    h+=`<div class="seg">${['Run','Bike'].map(a=>`<button class="${c.attrezzo===a?'on':''}" data-a="att" ${D} data-v="${a}">${a}</button>`).join('')}</div>`;
     h+=`<div class="cgrid">${[['minuti','Minuti'],['velocita','Velocità'],['livello','Livello']].map(([k,l])=>`<div><label class="lbl">${l}</label><input type="number" inputmode="decimal" step="any" data-f="card" ${D} data-k="${k}" value="${c[k]??''}" placeholder="–"></div>`).join('')}</div>`;
     h+=`<button class="btn big ${c.f?'ok':''}" data-a="cfatto" ${D}>${c.f?'✓ Fatto':'Segna come fatto'}</button>`;
   }
@@ -572,7 +576,7 @@ V.edit=()=>{
         if(e.tipo==='fisse'||e.tipo==='libero')h+=`<div class="grid2"><div><label class="lbl">Serie</label><input type="number" inputmode="numeric" data-n="1" ${I(P+'serie',e.serie)}></div><div><label class="lbl">Ripetizioni</label><input type="number" inputmode="numeric" data-n="1" ${I(P+'rip',e.rip)}></div></div>${p._prog?`<label class="row" style="margin-top:10px"><input type="checkbox" data-f="ed" data-p="${P}progressione" ${e.progressione!==false?'checked':''}> Segue la progressione settimanale</label>`:''}`;
         if(e.tipo==='piramide')h+=`<label class="lbl">Ripetizioni per serie</label><input ${I(P+'_pir',e._pir,'placeholder="12/10/8/6"')}>`;
         if(e.tipo==='tempo')h+=`<div class="grid2"><div><label class="lbl">Serie</label><input type="number" inputmode="numeric" data-n="1" ${I(P+'serie',e.serie)}></div><div><label class="lbl">Durata</label><input ${I(P+'durata',e.durata,`placeholder="1'"`)}></div></div>`;
-        if(e.tipo==='cardio')h+=`<div class="grid2"><div><label class="lbl">Minuti</label><input ${I(P+'minuti',e.minuti,'placeholder="5–10"')}></div><div><label class="lbl">Attrezzo</label><select data-f="ed" data-p="${P}attrezzo">${['Bike','Run'].map(a=>`<option ${e.attrezzo===a?'selected':''}>${a}</option>`).join('')}</select></div></div>`;
+        if(e.tipo==='cardio')h+=`<div class="grid2"><div><label class="lbl">Minuti</label><input ${I(P+'minuti',e.minuti,'placeholder="5–10"')}></div><div><label class="lbl">Attrezzo</label><select data-f="ed" data-p="${P}attrezzo">${['Run','Bike'].map(a=>`<option ${e.attrezzo===a?'selected':''}>${a}</option>`).join('')}</select></div></div>`;
         else h+=`<label class="lbl">Recupero (vuoto = quello della scheda)</label><input ${I(P+'recupero',e.recupero,`placeholder="1'30&quot;"`)}>`;
         h+=`<label class="lbl">Note</label><input ${I(P+'note',e.note)}>
         <label class="lbl">Collega a esercizio già fatto (riprende pesi e impostazioni)</label><select data-f="ed" data-p="${P}key"><option value="">Nuovo / automatico dal nome</option>${Object.entries(kk).map(([v,l])=>`<option value="${esc(v)}" ${e.key===v?'selected':''}>${esc(l)}</option>`).join('')}</select>
