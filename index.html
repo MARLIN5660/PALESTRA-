@@ -147,7 +147,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="ffoto" accept="image/*" hidden>
 <script>
 'use strict';
-const APPV='1.10';
+const APPV='1.11';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -236,6 +236,7 @@ async function migrate(){
     for(const p of S.plans){let ch=false;p.sessioni.forEach(s=>s.esercizi.forEach(e=>{if(e.key==='riscaldamento'||e.key==='finale'){e.attrezzo='Run';if(e.key==='riscaldamento')e.nome='Riscaldamento run/bike';ch=true}}));if(ch)await dbPut('plans',p)}
     S.set.dataV=4;await saveSet();
   }
+  if(S.set.dataV<5){const p=S.plans.find(x=>x.id==='scheda-2');if(p&&p.offsetSett==null){p.offsetSett=1;await dbPut('plans',p)}S.set.dataV=5;await saveSet()}
 }
 async function migrate2(){
   const p=normPlan(SEED.find(x=>x.id==='scheda-2'));await dbPut('plans',p);S.plans=S.plans.filter(x=>x.id!=='scheda-2').concat(p);
@@ -386,7 +387,9 @@ function drawEx(k,anim){
 const IMPF=[['inclinazione','Inclinazione','Incl.'],['sedile','Altezza sedile','Sedile'],['schienale','Schienale','Schien.'],['perno','Perno / foro','Foro'],['presa','Presa','Presa'],['altro','Altro','']];
 const impShort=imp=>IMPF.filter(([k])=>imp&&imp[k]).map(([k,,s])=>(s?s+' ':'')+imp[k]).join(' · ');
 const TIPI={fisse:'Serie fisse',piramide:'Piramidale',tempo:'A tempo',cardio:'Cardio',libero:'Corpo libero'};
-function weekOf(p,d=new Date()){if(!p.inizio)return 1;return Math.max(1,Math.floor((d-new Date(p.inizio+'T00:00'))/(7*864e5))+1)}
+const monKey=d=>{d=new Date(d);d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d.toISOString().slice(0,10)};
+// settimana = settimane passate in cui ti sei allenato con questa scheda + quella in corso (+ correzione manuale)
+function weekOf(p,d=new Date()){const cur=monKey(d),ws=new Set();S.workouts.forEach(w=>{if(w.schedaId===p.id){const k=monKey(w.data);if(k<cur)ws.add(k)}});return Math.max(1,ws.size+1+(p.offsetSett||0))}
 const progOf=(p,wk)=>p.progressione&&p.progressione.length?p.progressione[Math.min(wk,p.progressione.length)-1]:null;
 function prescr(p,ex,wk){let serie=ex.serie||3,rip=ex.rip||10;const g=progOf(p,wk);if(g&&ex.progressione!==false&&(ex.tipo==='fisse'||ex.tipo==='libero')){serie=g.serie;rip=g.rip}return{serie,rip}}
 function prescStr(ex,ps){switch(ex.tipo){case'piramide':return(ex.piramide||[]).join('/');case'tempo':return`${ex.serie||1}×${ex.durata||''}`;case'cardio':return ex.minuti?`${ex.minuti}'`:'';default:return`${ps.serie}×${ps.rip}`}}
@@ -455,7 +458,7 @@ V.oggi=()=>{
   if(S.cur)h+=`<div class="card hl"><b>Allenamento in corso</b><div class="muted">${esc(S.cur.sessioneNome)} · iniziato alle ${fmtH(S.cur.data)}</div><button class="btn big pri" data-a="riprendi">Riprendi</button></div>`;
   if(!p)return{t:'Oggi',h:h+'<div class="card">Nessuna scheda. Vai su <b>Schede</b> per importarne una.</div>'};
   const wk=weekOf(p),ns=nextSess(p),g=progOf(p,wk),mw=maxWeeks(p);
-  h+=`<div class="card"><div class="muted small">Scheda attiva</div><h2>${esc(p.nome)}</h2><div class="muted">Settimana ${wk}${mw?` di ${esc(p.durata)}`:''}${g?` · <b class="b">${g.serie} serie × ${g.rip} rip</b>`:''}</div>`;
+  h+=`<div class="card"><div class="muted small">Scheda attiva</div><h2>${esc(p.nome)}</h2><div class="muted" data-a="setwk" style="cursor:pointer">Settimana ${wk}${mw?` di ${esc(p.durata)}`:''} <span class="small">✎</span>${g?` · <b class="b">${g.serie} serie × ${g.rip} rip</b>`:''}</div>`;
   if(mw&&wk>mw)h+='<div class="warn">La scheda dovrebbe essere finita: chiedi la nuova all’istruttore e mandami la foto.</div>';
   const sel=S.ui.sel!=null&&S.ui.sel<p.sessioni.length?S.ui.sel:ns;
   if(!S.cur){
@@ -805,6 +808,7 @@ document.addEventListener('click',async ev=>{
   case'nuova':startEdit(null);break;
   case'esporta':{const p=S.plans.find(x=>x.id===id);await shareOrDownload(`${p.id}.json`,JSON.stringify(cleanPlan(p),null,2),true);break}
   case'elimina':{const p=S.plans.find(x=>x.id===id);if(!confirm(`Eliminare "${p.nome}"?\nGli allenamenti nello storico restano.`))return;await dbDel('plans',id);S.plans=S.plans.filter(x=>x.id!==id);if(S.set.activeId===id){S.set.activeId=(activePlan()||{}).id||null;await saveSet()}go('schede');break}
+  case'setwk':{const p=activePlan(),wk=weekOf(p),v=parseInt(prompt('In che settimana della scheda sei?',wk),10);if(v>0&&v!==wk){p.offsetSett=(p.offsetSett||0)+v-wk;await dbPut('plans',p);toast('Settimana '+v);rr()}break}
   case'import':$('#fimp').click();break;
   case'foto':$('#ffoto').click();break;
   case'cpPrompt':await copyText(fotoPrompt());break;
