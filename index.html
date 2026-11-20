@@ -146,7 +146,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="fimp" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const APPV='1.1';
+const APPV='1.2';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -190,7 +190,7 @@ const PROG1=[{rip:15,serie:3},{rip:12,serie:4},{rip:10,serie:5},{rip:8,serie:5}]
 const RISC={key:'riscaldamento',nome:'Riscaldamento bike/run',tipo:'cardio',minuti:'5–10',attrezzo:'Bike'};
 const FIN=m=>({key:'finale',nome:'Finale run/bike',tipo:'cardio',minuti:m,attrezzo:'Run'});
 const SEED=[
-{id:'scheda-1',nome:'Scheda 1',inizio:'2026-10-07',durata:'',recupero:'30"–60"',progressione:PROG1,sessioni:[{nome:'Sessione unica',esercizi:[
+{id:'scheda-1',nome:'Scheda 1',inizio:'2026-10-07',durata:'',recupero:'30"–60"',progressione:PROG1,sessioni:[{nome:'Allenamento',esercizi:[
   RISC,
   {key:'goblet-squat',nome:'Goblet squat',serie:3,rip:15,note:'Peso del manubrio'},
   {key:'chest-press',nome:'Chest press',serie:3,rip:15},
@@ -202,7 +202,7 @@ const SEED=[
   {key:'crunch',nome:'Crunch',tipo:'libero',serie:3,rip:15},
   FIN('15–20')]}]},
 {id:'scheda-2',nome:'Scheda 2',inizio:'2026-11-09',durata:'6–7 settimane',recupero:"1'",progressione:[],sessioni:[
- {nome:'Sessione 1',esercizi:[
+ {nome:'Allenamento A',esercizi:[
   RISC,
   {key:'affondi-indietro',nome:'Affondi indietro',serie:3,rip:12,note:'Peso del singolo manubrio'},
   {key:'leg-extension',nome:'Leg extension',serie:3,rip:12},
@@ -213,7 +213,7 @@ const SEED=[
   {key:'curl-panca-45',nome:'Curl panca 45°',serie:3,rip:12,note:'Peso del singolo manubrio'},
   {key:'crunch',nome:'Crunch',tipo:'libero',serie:3,rip:15},
   FIN('15')]},
- {nome:'Sessione 2',esercizi:[
+ {nome:'Allenamento B',esercizi:[
   RISC,
   {key:'hyperextension',nome:'Hyperextension',serie:3,rip:12,impostazioni:{perno:'N°4'}},
   {key:'leg-curl-mono',nome:'Leg curl mono',serie:3,rip:12,note:'Una gamba alla volta'},
@@ -339,6 +339,7 @@ const progOf=(p,wk)=>p.progressione&&p.progressione.length?p.progressione[Math.m
 function prescr(p,ex,wk){let serie=ex.serie||3,rip=ex.rip||10;const g=progOf(p,wk);if(g&&ex.progressione!==false&&(ex.tipo==='fisse'||ex.tipo==='libero')){serie=g.serie;rip=g.rip}return{serie,rip}}
 function prescStr(ex,ps){switch(ex.tipo){case'piramide':return(ex.piramide||[]).join('/');case'tempo':return`${ex.serie||1}×${ex.durata||''}`;case'cardio':return ex.minuti?`${ex.minuti}'`:'';default:return`${ps.serie}×${ps.rip}`}}
 const maxWeeks=p=>{const m=(String(p.durata||'').match(/\d+/g)||[]).map(Number);return m.length?Math.max(...m):0};
+const sLab=(p,i)=>p.sessioni.length>1?'Allenamento '+'ABCDEFGH'[i]:'Allenamento';
 function nextSess(p){const l=S.workouts.find(w=>w.schedaId===p.id);return l?(l.sessione+1)%p.sessioni.length:0}
 const drKey=e=>e.tipo==='cardio'?(((e.cardio&&e.cardio.attrezzo)||e.attrezzo)==='Run'?'run':'bike'):(e.disegno||guessDr(e.nome));
 const isDone=e=>e.tipo==='cardio'?!!e.cardio.f:e.sets.length>0&&e.sets.every(s=>s.f);
@@ -356,7 +357,7 @@ function buildEx(p,ex,wk){
 }
 function startWorkout(si){
   const p=activePlan(),s=p.sessioni[si],wk=weekOf(p);
-  S.cur={id:uid(),data:new Date().toISOString(),schedaId:p.id,schedaNome:p.nome,sessione:si,sessioneNome:s.nome,settimana:wk,nota:'',esercizi:s.esercizi.map(ex=>buildEx(p,ex,wk))};
+  S.cur={id:uid(),data:new Date().toISOString(),schedaId:p.id,schedaNome:p.nome,sessione:si,sessioneNome:sLab(p,si),settimana:wk,nota:'',esercizi:s.esercizi.map(ex=>buildEx(p,ex,wk))};
   kvSet('cur',S.cur);S.open=null;go('allena');
 }
 const usedEx=e=>e.tipo==='cardio'?(e.cardio.f||e.touched):(e.sets.some(s=>s.f)||!!e.touched);
@@ -404,10 +405,14 @@ V.oggi=()=>{
   const wk=weekOf(p),ns=nextSess(p),g=progOf(p,wk),mw=maxWeeks(p);
   h+=`<div class="card"><div class="muted small">Scheda attiva</div><h2>${esc(p.nome)}</h2><div class="muted">Settimana ${wk}${mw?` di ${esc(p.durata)}`:''}${g?` · <b class="b">${g.serie} serie × ${g.rip} rip</b>`:''}</div>`;
   if(mw&&wk>mw)h+='<div class="warn">La scheda dovrebbe essere finita: chiedi la nuova all’istruttore e mandami la foto.</div>';
-  if(!S.cur)h+=p.sessioni.map((s,i)=>`<button class="btn big ${i===ns?'pri':''}" data-a="start" data-i="${i}">▶ ${esc(s.nome)}${i===ns&&p.sessioni.length>1?' <small>· prossima</small>':''}</button>`).join('');
+  const sel=S.ui.sel!=null&&S.ui.sel<p.sessioni.length?S.ui.sel:ns;
+  if(!S.cur){
+    if(p.sessioni.length>1)h+=`<label class="lbl">Allenamento di oggi</label><select data-f="sel" style="font-size:18px;font-weight:700">${p.sessioni.map((s,i)=>`<option value="${i}" ${i===sel?'selected':''}>${sLab(p,i)}${i===ns?' (tocca a questo)':''}</option>`).join('')}</select>`;
+    h+=`<button class="btn big pri" data-a="start" data-i="${sel}">▶ Inizia ${sLab(p,sel)}</button>`;
+  }
   h+='</div>';
-  const s=p.sessioni[ns];
-  if(s&&!S.cur)h+=`<div class="card"><h3>${esc(s.nome)}</h3>${s.esercizi.map(ex=>planExRow(p,ex,wk)).join('')}</div>`;
+  const s=p.sessioni[sel];
+  if(s&&!S.cur)h+=`<div class="card"><h3>${sLab(p,sel)}</h3>${s.esercizi.map(ex=>planExRow(p,ex,wk)).join('')}</div>`;
   const lw=S.workouts[0];
   if(lw)h+=`<div class="card li" data-a="wdet" data-id="${lw.id}"><div class="muted small">Ultimo allenamento</div><b>${fmtDL(lw.data)}</b><div class="muted">${esc(lw.sessioneNome)} · ${esc(lw.schedaNome)}</div></div>`;
   const bd=S.set.ultimoBackup?Math.floor((Date.now()-new Date(S.set.ultimoBackup))/864e5):null;
@@ -489,7 +494,7 @@ V.scheda=id=>{
   let h=`<div class="card"><h2>${esc(p.nome)} ${act?'<span class="badge">attiva</span>':''}</h2><div class="muted">Dal ${p.inizio?fmtDL(p.inizio+'T12:00'):'–'}${p.durata?' · '+esc(p.durata):''}${p.recupero?' · recupero '+esc(p.recupero):''}</div>`;
   if(p.progressione&&p.progressione.length)h+=`<div class="small" style="margin-top:6px">Progressione: ${p.progressione.map((g,k)=>`<span class="${act&&k===gi?'b':''}">sett. ${k+1}${k===p.progressione.length-1?'+':''} ${g.rip}×${g.serie}</span>`).join(' · ')}</div>`;
   h+=`<div>${act?'':`<button class="btn sm pri" data-a="attiva" data-id="${esc(p.id)}">Imposta attiva</button>`}<button class="btn sm" data-a="modifica" data-id="${esc(p.id)}">Modifica</button><button class="btn sm" data-a="esporta" data-id="${esc(p.id)}">Esporta</button><button class="btn sm" data-a="elimina" data-id="${esc(p.id)}">Elimina</button></div></div>`;
-  p.sessioni.forEach(s=>{h+=`<div class="card"><h3>${esc(s.nome)}</h3>${s.esercizi.map(ex=>planExRow(p,ex,wk)).join('')}</div>`});
+  p.sessioni.forEach((s,si)=>{h+=`<div class="card"><h3>${sLab(p,si)}</h3>${s.esercizi.map(ex=>planExRow(p,ex,wk)).join('')}</div>`});
   return{t:p.nome,h,back:'schede'};
 };
 /* editor */
@@ -509,7 +514,7 @@ V.edit=()=>{
   <label class="lbl">Recupero per tutta la scheda</label><input ${I('recupero',p.recupero,`placeholder='30"–60"'`)}>
   <label class="lbl">Progressione settimanale (rip×serie, opzionale)</label><input ${I('_prog',p._prog,'placeholder="15×3, 12×4, 10×5, 8×5"')}></div>`;
   p.sessioni.forEach((s,si)=>{
-    h+=`<div class="card"><div class="row"><input ${I(`sessioni.${si}.nome`,s.nome)}><button class="btn sm" style="margin:0" data-a="edDelS" data-s="${si}">✕</button></div>`;
+    h+=`<div class="card"><div class="row"><h3 style="flex:1;margin:0">${sLab(p,si)}</h3><button class="btn sm" style="margin:0" data-a="edDelS" data-s="${si}">Elimina</button></div>`;
     s.esercizi.forEach((e,ei)=>{
       const k=`${si}-${ei}`,P=`sessioni.${si}.esercizi.${ei}.`,op=S.edOpen===k;
       h+=`<div class="edrow"><div class="exh" data-a="edOpen" data-k="${k}"><div class="thumb">${drawEx(drKey(e))}</div><div class="exn"><div class="exname">${ei+1}. ${esc(e.nome)}</div><div class="muted small">${esc(TIPI[e.tipo]||'')} · ${esc(prescStr({...e,piramide:String(e._pir||'').split(/[\/,\s]+/).filter(Boolean)},{serie:e.serie,rip:e.rip}))}</div></div></div>`;
@@ -662,7 +667,7 @@ document.addEventListener('click',async ev=>{
   switch(a){
   case'tab':S.ed=null;go(S.cur&&el.dataset.v==='oggi'?'allena':el.dataset.v);break;
   case'back':if(S.back==='edCancel'){const b=S.ed&&S.ed.id;S.ed=null;b?go('scheda',b):go('schede')}else go(S.back);break;
-  case'start':unlockAudio();startWorkout(i);break;
+  case'start':unlockAudio();S.ui.sel=null;startWorkout(i);break;
   case'riprendi':unlockAudio();S.open=null;go('allena');break;
   case'open':S.open=S.open===i?-1:i;rr();if(S.open===i)scrollToEx(i);break;
   case'peso':e.peso=Math.max(0,r2((e.peso||0)+d*S.set.passo));e.touched=true;saveCur();rr();break;
@@ -687,7 +692,7 @@ document.addEventListener('click',async ev=>{
   case'edAddE':{const s=S.ed.sessioni[+el.dataset.s];s.esercizi.push({key:'',nome:'Nuovo esercizio',tipo:'fisse',disegno:'generico',serie:3,rip:12,recupero:'',note:'',_pir:''});S.edOpen=`${el.dataset.s}-${s.esercizi.length-1}`;rr();break}
   case'edDelE':{const[si,ei]=el.dataset.k.split('-').map(Number);if(confirm('Eliminare l’esercizio?')){S.ed.sessioni[si].esercizi.splice(ei,1);S.edOpen=null;rr()}break}
   case'edMv':{const[si,ei]=el.dataset.k.split('-').map(Number),L=S.ed.sessioni[si].esercizi,ni=ei+d;if(ni<0||ni>=L.length)break;[L[ei],L[ni]]=[L[ni],L[ei]];S.edOpen=`${si}-${ni}`;rr();break}
-  case'edAddS':S.ed.sessioni.push({nome:`Sessione ${S.ed.sessioni.length+1}`,esercizi:[]});rr();break;
+  case'edAddS':S.ed.sessioni.push({nome:'Allenamento '+'ABCDEFGH'[S.ed.sessioni.length],esercizi:[]});rr();break;
   case'edDelS':{const si=+el.dataset.s;if(S.ed.sessioni.length<2)return toast('Serve almeno una sessione');if(confirm('Eliminare la sessione?')){S.ed.sessioni.splice(si,1);S.edOpen=null;rr()}break}
   case'edSave':await edSave();break;
   case'edCancel':{const back=S.ed&&S.ed.id;S.ed=null;back?go('scheda',back):go('schede');break}
@@ -722,6 +727,7 @@ document.addEventListener('change',ev=>{
   else if(f==='peso'||f==='imp'||f==='card')sum();
   else if(f==='ed'&&el.dataset.rr)rr();
   else if(f==='pk'){S.ui.pk=el.value;rr()}
+  else if(f==='sel'){S.ui.sel=+el.value;rr()}
 });
 document.addEventListener('toggle',ev=>{const d=ev.target;if(d.dataset&&d.dataset.u)S.ui[d.dataset.u]=d.open},true);
 addEventListener('beforeinstallprompt',e=>{e.preventDefault();S.inst=e;if(S.view==='opzioni')rr()});
