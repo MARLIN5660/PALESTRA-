@@ -146,7 +146,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="fimp" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const APPV='1.3';
+const APPV='1.4';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -229,20 +229,48 @@ const SEED=[
 const START2={'affondi-indietro':{pesi:[4,5,6,8]},'leg-extension':{peso:10,rip:12},'pectoral':{peso:20,rip:15},'spinte-30':{pesi:[6,8,10,10]},'lento-avanti':{pesi:[2,4,5,6]},'curl-cavo':{peso:30,rip:10},'curl-panca-45':{peso:6,rip:10},
  'hyperextension':{peso:0,rip:10},'leg-curl-mono':{pesi:[10,15,20,25]},'v-row':{peso:25,rip:15},'lat-machine':{pesi:[20,25,30,35]},'face-pull':{peso:25,rip:12},'push-down':{peso:35,rip:10},'french-manubri':{peso:4,rip:10}};
 async function migrate(){
-  if((S.set.dataV||1)>=2)return;
+  if((S.set.dataV||1)<2)await migrate2();
+  if(S.set.dataV<3)await migrate3();
+}
+async function migrate2(){
   const p=normPlan(SEED.find(x=>x.id==='scheda-2'));await dbPut('plans',p);S.plans=S.plans.filter(x=>x.id!=='scheda-2').concat(p);
   // storico Scheda 1 (pesi iniziali e finali dalla vecchia app)
   const S1=[['goblet-squat','Goblet squat',4,10],['chest-press','Chest press',20,35],['vertical-traction','Vertical traction',35,50],['curl-cavo','Bicipiti poliercolina',20,20],['push-down','Tricipiti poliercolina',20,30],['shoulder-press','Shoulder press',15,25]];
   const mk=(id,data,wk,serie,rip,col,nota)=>({id,data,fine:null,schedaId:'scheda-1',schedaNome:'Scheda 1',sessione:0,sessioneNome:'Allenamento',settimana:wk,nota,importato:true,
     esercizi:[...S1.map(([key,nome,a,b])=>({key,nome,tipo:'fisse',disegno:guessDr(nome),presc:`${serie}×${rip}`,rip,peso:col?b:a,touched:true,imp:{},nota:'',sets:Array.from({length:serie},()=>({f:true}))})),
       ...[['crunch-inversi','Crunch inversi'],['crunch','Crunch']].map(([key,nome])=>({key,nome,tipo:'libero',disegno:guessDr(nome),presc:`${serie}×${rip}`,rip,imp:{},nota:'',sets:Array.from({length:serie},()=>({f:true}))}))]});
-  for(const w of[mk('s1-inizio','2026-10-07T18:00:00',1,3,15,0,'Pesi iniziali (dalla vecchia app)'),mk('s1-fine','2026-11-08T18:00:00',4,5,8,1,'Pesi finali (dalla vecchia app)')])
+  for(const w of[mk('s1-inizio','2026-10-07T18:00:00',1,3,15,0,'Pesi iniziali (dalla vecchia app)'),mk('s1-fine','2026-10-28T18:00:00',4,5,8,1,'Pesi finali (dalla vecchia app)')])
     if(!S.workouts.some(x=>x.id===w.id)){await dbPut('workouts',w);S.workouts.push(w)}
   S.workouts.sort((a,b)=>a.data<b.data?1:-1);
-  for(const[k,,,b]of S1){const m=S.mem[k]||{};if(!m.data){Object.assign(m,{peso:b,rip:8,data:'2026-11-08T18:00:00'});S.mem[k]=m}}
+  for(const[k,,,b]of S1){const m=S.mem[k]||{};if(!m.data){Object.assign(m,{peso:b,rip:8,data:'2026-10-28T18:00:00'});S.mem[k]=m}}
   for(const[k,v]of Object.entries(START2)){const m=S.mem[k]||{};if(!m.data||m.data<'2026-11-09'){Object.assign(m,v,{data:'2026-11-09T12:00:00',fonte:'scheda'});if(v.pesi)m.peso=Math.max(...v.pesi);S.mem[k]=m}}
   if(!S.mem['spinte-30'].imp)S.mem['spinte-30'].imp={inclinazione:'1'};
   S.set.dataV=2;await saveMem();await saveSet();
+}
+async function migrate3(){
+  // Scheda 1: pesi finali alla 4a settimana
+  const f=S.workouts.find(w=>w.id==='s1-fine');if(f&&f.data!=='2026-10-28T18:00:00'){f.data='2026-10-28T18:00:00';await dbPut('workouts',f)}
+  for(const k of['goblet-squat','chest-press','vertical-traction','shoulder-press'])if(S.mem[k]&&S.mem[k].data==='2026-11-08T18:00:00')S.mem[k].data='2026-10-28T18:00:00';
+  // Scheda 2: allenamenti A (mar 17/11) e B (gio 19/11) con i pesi della scheda cartacea
+  const p=S.plans.find(x=>x.id==='scheda-2');
+  if(p&&p.sessioni.length>1){
+    for(const[si,id,data]of[[0,'s2-a1','2026-11-17T18:00:00'],[1,'s2-b1','2026-11-19T18:00:00']]){
+      if(S.workouts.some(w=>w.id===id))continue;
+      const es=p.sessioni[si].esercizi.filter(ex=>ex.tipo!=='cardio').map(ex=>{const st=START2[ex.key]||{},ps=prescr(p,ex,2);
+        const e={key:ex.key,nome:ex.nome,tipo:ex.tipo,disegno:ex.disegno,presc:prescStr(ex,ps),rip:ps.rip,imp:{...(ex.impostazioni||{})},nota:'',touched:true,sets:[]};
+        const done=n=>Array.from({length:n||1},()=>({f:true}));
+        if(ex.tipo==='fisse'){e.peso=st.peso??null;e.sets=done(ps.serie)}
+        else if(ex.tipo==='piramide')e.sets=(ex.piramide||[]).map((r,i)=>({rip:r,peso:st.pesi?st.pesi[i]:null,f:true}));
+        else if(ex.tipo==='tempo'){e.durata=ex.durata;e.sets=done(ex.serie)}
+        else e.sets=done(ps.serie);
+        return e});
+      const w={id,data,fine:null,schedaId:'scheda-2',schedaNome:'Scheda 2',sessione:si,sessioneNome:sLab(p,si),settimana:2,nota:'Ricostruito dalla scheda cartacea',importato:true,esercizi:es};
+      await dbPut('workouts',w);S.workouts.push(w);
+      es.forEach(e=>{const m=S.mem[e.key]||{};if(!m.data||m.fonte||m.data<data){if(e.tipo==='fisse'){m.peso=e.peso;m.rip=e.rip;m.pesi=null}else if(e.tipo==='piramide'){m.pesi=e.sets.map(x=>x.peso);m.peso=Math.max(...m.pesi.filter(x=>x!=null))}else m.rip=e.rip;m.imp={...e.imp,...(m.imp||{})};m.data=data;delete m.fonte;S.mem[e.key]=m}});
+    }
+  }
+  S.workouts.sort((a,b)=>a.data<b.data?1:-1);
+  S.set.dataV=3;await saveMem();await saveSet();
 }
 function normPlan(p){
   p=JSON.parse(JSON.stringify(p));p.tipo='scheda-palestra';p.nome=p.nome||'Scheda';p.id=p.id||slug(p.nome)||uid();
@@ -585,7 +613,7 @@ function wLine(e){
 V.dettaglio=id=>{
   const w=S.workouts.find(x=>x.id===id);if(!w)return V.storico();
   const dur=w.fine?Math.round((new Date(w.fine)-new Date(w.data))/6e4):null;
-  let h=`<div class="card"><h2>${fmtDL(w.data)}</h2><div class="muted">${esc(w.sessioneNome)} · ${esc(w.schedaNome)} · sett. ${w.settimana} · ore ${fmtH(w.data)}${dur?` · ${dur} min`:''}</div>${w.nota?`<div style="margin-top:8px">📝 ${esc(w.nota)}</div>`:''}</div><div class="card">`;
+  let h=`<div class="card"><h2>${fmtDL(w.data)}</h2><div class="muted">${esc(w.sessioneNome)} · ${esc(w.schedaNome)} · sett. ${w.settimana}${w.importato?'':' · ore '+fmtH(w.data)}${dur?` · ${dur} min`:''}</div>${w.nota?`<div style="margin-top:8px">📝 ${esc(w.nota)}</div>`:''}</div><div class="card">`;
   w.esercizi.forEach(e=>{h+=`<div class="wline"><div class="exname" style="font-size:16px">${isDone(e)?'✓ ':''}${esc(e.nome)}</div><div class="small">${wLine(e)}</div>${impShort(e.imp)?`<div class="small muted">⚙ ${esc(impShort(e.imp))}</div>`:''}${e.nota?`<div class="small muted">📝 ${esc(e.nota)}</div>`:''}</div>`});
   h+=`</div><button class="btn ghost" data-a="wdel" data-id="${w.id}">Elimina questo allenamento</button>`;
   return{t:'Allenamento',h,back:'storico'};
