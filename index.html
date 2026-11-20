@@ -143,11 +143,11 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
   <button data-a="tab" data-v="progressi"><svg viewBox="0 0 24 24"><path d="M3 20h18M6 16l4-5 4 3 5-7"/></svg>Progressi</button>
   <button data-a="tab" data-v="opzioni"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>Opzioni</button>
 </nav>
-<input type="file" id="fimp" accept=".json,application/json" hidden>
+<input type="file" id="fimp" accept=".json,.txt,application/json,text/plain" hidden>
 <input type="file" id="ffoto" accept="image/*" hidden>
 <script>
 'use strict';
-const APPV='1.8';
+const APPV='1.9';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -745,7 +745,12 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme)
 /* ---------- backup e import ---------- */
 async function shareOrDownload(name,text,share){
   const blob=new Blob([text],{type:'application/json'});
-  if(share&&navigator.canShare){const file=new File([blob],name,{type:'application/json'});if(navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:name});return true}catch(e){if(e.name==='AbortError')return false}}}
+  if(share){
+    // Android condivide solo alcuni tipi di file: il backup va come testo .txt (il contenuto resta JSON)
+    const file=new File([text],name.replace(/\.json$/,'.txt'),{type:'text/plain'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:name});return true}catch(e){if(e.name==='AbortError')return false;alert('Condivisione non riuscita: '+e.message);return false}}
+    alert('Questo browser non permette di condividere file. Uso "Scarica file backup" e poi caricalo su pCloud dall\'app pCloud.');return false;
+  }
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);return true;
 }
 async function exportBackup(share){
