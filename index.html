@@ -144,9 +144,10 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
   <button data-a="tab" data-v="opzioni"><svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>Opzioni</button>
 </nav>
 <input type="file" id="fimp" accept=".json,application/json" hidden>
+<input type="file" id="ffoto" accept="image/*" hidden>
 <script>
 'use strict';
-const APPV='1.5';
+const APPV='1.6';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -175,13 +176,13 @@ const dbPut=(s,v)=>tx(s,'readwrite',o=>o.put(JSON.parse(JSON.stringify(v))));
 const dbDel=(s,k)=>tx(s,'readwrite',o=>o.delete(k));
 const kvSet=(k,v)=>dbPut('kv',{k,v});
 /* ---------- stato ---------- */
-const S={plans:[],workouts:[],mem:{},set:{tema:'auto',passo:1,activeId:null,ultimoBackup:null,seeded:false},cur:null,view:'oggi',arg:null,open:null,ui:{},ed:null,edOpen:null,back:null};
+const S={plans:[],workouts:[],mem:{},set:{tema:'auto',passo:1,activeId:null,ultimoBackup:null,seeded:false},cur:null,view:'oggi',arg:null,open:null,ui:{},ed:null,edOpen:null,back:null,api:{key:'',model:'claude-sonnet-5-5'},foto:null};
 const saveSet=()=>kvSet('set',S.set), saveMem=()=>kvSet('mem',S.mem);
 let curT;const saveCur=()=>{clearTimeout(curT);curT=setTimeout(()=>kvSet('cur',S.cur),250)};
 async function load(){
   S.plans=await dbAll('plans');
   S.workouts=(await dbAll('workouts')).sort((a,b)=>a.data<b.data?1:-1);
-  (await dbAll('kv')).forEach(r=>{if(r.k==='mem')S.mem=r.v||{};else if(r.k==='set')Object.assign(S.set,r.v);else if(r.k==='cur')S.cur=r.v});
+  (await dbAll('kv')).forEach(r=>{if(r.k==='mem')S.mem=r.v||{};else if(r.k==='set')Object.assign(S.set,r.v);else if(r.k==='cur')S.cur=r.v;else if(r.k==='api')Object.assign(S.api,r.v)});
   if(!S.plans.length&&!S.set.seeded){for(const p of SEED){const n=normPlan(p);await dbPut('plans',n);S.plans.push(n)}S.set.activeId='scheda-2';S.set.seeded=true;await saveSet()}
   await migrate();
 }
@@ -536,7 +537,7 @@ V.schede=()=>{
   let h='';
   if(act)h+='<div class="muted lblh">Attiva</div>'+card(act);
   if(oth.length)h+='<div class="muted lblh">Archivio</div>'+oth.map(card).join('');
-  h+='<button class="btn" data-a="import">Importa scheda (JSON)</button><button class="btn" data-a="nuova">+ Nuova scheda vuota</button>';
+  h+='<button class="btn big pri" data-a="foto">📷 Nuova scheda da foto</button><button class="btn" data-a="nuova">✏️ Nuova scheda a mano</button><button class="btn" data-a="import">Importa scheda (file JSON)</button>';
   return{t:'Schede',h};
 };
 V.scheda=id=>{
@@ -545,22 +546,26 @@ V.scheda=id=>{
   let h=`<div class="card"><h2>${esc(p.nome)} ${act?'<span class="badge">attiva</span>':''}</h2><div class="muted">Dal ${p.inizio?fmtDL(p.inizio+'T12:00'):'–'}${p.durata?' · '+esc(p.durata):''}${p.recupero?' · recupero '+esc(p.recupero):''}</div>`;
   if(p.progressione&&p.progressione.length)h+=`<div class="small" style="margin-top:6px">Progressione: ${p.progressione.map((g,k)=>`<span class="${act&&k===gi?'b':''}">sett. ${k+1}${k===p.progressione.length-1?'+':''} ${g.rip}×${g.serie}</span>`).join(' · ')}</div>`;
   h+=`<div>${act?'':`<button class="btn sm pri" data-a="attiva" data-id="${esc(p.id)}">Imposta attiva</button>`}<button class="btn sm" data-a="modifica" data-id="${esc(p.id)}">Modifica</button><button class="btn sm" data-a="esporta" data-id="${esc(p.id)}">Esporta</button><button class="btn sm" data-a="elimina" data-id="${esc(p.id)}">Elimina</button></div></div>`;
+  if(p.foto)h+=`<details class="card"><summary style="padding-top:0">📷 Foto della scheda</summary><img src="${p.foto}" style="width:100%;border-radius:10px;margin-top:6px"></details>`;
   p.sessioni.forEach((s,si)=>{h+=`<div class="card"><h3>${sLab(p,si)}</h3>${s.esercizi.map(ex=>planExRow(p,ex,wk)).join('')}</div>`});
   return{t:p.nome,h,back:'schede'};
 };
 /* editor */
 function knownKeys(){const k={};S.plans.forEach(p=>p.sessioni.forEach(s=>s.esercizi.forEach(e=>{if(e.key&&!k[e.key])k[e.key]=e.nome})));return k}
-function startEdit(id){
-  const p=id?JSON.parse(JSON.stringify(S.plans.find(x=>x.id===id))):{tipo:'scheda-palestra',id:'',nome:'Nuova scheda',inizio:todayISO(),durata:'',recupero:'',progressione:[],sessioni:[{nome:'Sessione 1',esercizi:[]}]};
+function startEdit(id,obj){
+  const p=obj?obj:id?JSON.parse(JSON.stringify(S.plans.find(x=>x.id===id))):{tipo:'scheda-palestra',id:'',nome:'Nuova scheda',inizio:todayISO(),durata:'',recupero:'',progressione:[],sessioni:[{nome:'Sessione 1',esercizi:[]}]};
   p._prog=(p.progressione||[]).map(g=>`${g.rip}×${g.serie}`).join(', ');
   p.sessioni.forEach(s=>s.esercizi.forEach(e=>{e._pir=(e.piramide||[]).join('/')}));
+  if(!id)p._nuova=true;
   S.ed=p;S.edOpen=null;go('edit');
 }
 V.edit=()=>{
   const p=S.ed;if(!p)return V.schede();
   const I=(path,val,extra='')=>`data-f="ed" data-p="${path}" value="${esc(val??'')}" ${extra}`;
   const kk=knownKeys();
-  let h=`<div class="card"><label class="lbl" style="margin-top:0">Nome scheda</label><input ${I('nome',p.nome)}>
+  let h=p.foto?`<details class="card" data-u="edfoto" ${S.ui.edfoto!==false?'open':''} style="margin-top:0"><summary style="padding-top:0">📷 Foto della scheda</summary><img src="${p.foto}" style="width:100%;border-radius:10px;margin-top:6px"></details>`:'';
+  if(p._nuova&&p.sessioni.some(s=>s.esercizi.length))h+='<div class="warn" style="margin:0 0 12px">Controlla la trascrizione con la foto, poi tocca Salva.</div>';
+  h+=`<div class="card"><label class="lbl" style="margin-top:0">Nome scheda</label><input ${I('nome',p.nome)}>
   <div class="grid2"><div><label class="lbl">Data inizio</label><input type="date" ${I('inizio',p.inizio)}></div><div><label class="lbl">Durata</label><input ${I('durata',p.durata,'placeholder="6–7 settimane"')}></div></div>
   <label class="lbl">Recupero per tutta la scheda</label><input ${I('recupero',p.recupero,`placeholder='30"–60"'`)}>
   <label class="lbl">Progressione settimanale (rip×serie, opzionale)</label><input ${I('_prog',p._prog,'placeholder="15×3, 12×4, 10×5, 8×5"')}></div>`;
@@ -594,8 +599,11 @@ async function edSave(){
   const p=S.ed;if(!String(p.nome).trim())return toast('Manca il nome');
   p.progressione=parseProg(p._prog);delete p._prog;
   p.sessioni.forEach(s=>s.esercizi.forEach(e=>{if(e.tipo==='piramide')e.piramide=String(e._pir||'').split(/[\/,\s]+/).map(Number).filter(x=>x>0);delete e._pir;if(!e.key)e.key=slug(e.nome);if(!e.disegno)e.disegno=guessDr(e.nome)}));
-  if(!p.id){let b=slug(p.nome)||'scheda',id=b,n=2;while(S.plans.some(x=>x.id===id))id=b+'-'+n++;p.id=id}
-  const n=normPlan(p);await dbPut('plans',n);S.plans=S.plans.filter(x=>x.id!==n.id).concat(n);S.ed=null;toast('Scheda salvata');go('scheda',n.id);
+  const nuova=!!p._nuova;delete p._nuova;
+  if(!p.id||(nuova&&S.plans.some(x=>x.id===p.id))){let b=slug(p.nome)||'scheda',id=b,n=2;while(S.plans.some(x=>x.id===id))id=b+'-'+n++;p.id=id}
+  const n=normPlan(p);applyStart(n);await dbPut('plans',n);await saveMem();S.plans=S.plans.filter(x=>x.id!==n.id).concat(n);S.ed=null;
+  if(nuova&&confirm(`Impostare "${n.nome}" come scheda attiva?`)){S.set.activeId=n.id;await saveSet()}
+  toast('Scheda salvata');go('scheda',n.id);
 }
 V.storico=()=>{
   if(!S.workouts.length)return{t:'Storico',h:'<div class="card muted">Nessun allenamento salvato.</div>'};
@@ -663,16 +671,79 @@ V.opzioni=()=>{
   <div class="card"><h3>Backup</h3><div class="muted">Ultimo backup: ${bd?fmtDL(bd):'mai'}</div>
   <button class="btn pri" data-a="bkshare">Salva backup su pCloud (condividi)</button><button class="btn" data-a="bkdl">Scarica file backup</button><button class="btn" data-a="import">Ripristina da backup / importa scheda</button>
   <div class="muted small" style="margin-top:8px">Il backup contiene schede, storico, pesi e impostazioni delle macchine.</div></div>`;
+  h+=`<div class="card"><h3>Trascrizione automatica (facoltativa)</h3><div class="muted small">Per leggere le foto delle schede direttamente dall'app. Serve una chiave API Anthropic (console.anthropic.com) con un po' di credito: si paga a consumo, pochi centesimi per foto, nessun abbonamento. Senza chiave puoi usare l'app Claude o l'inserimento a mano.</div>
+  <label class="lbl">Chiave API</label><input type="password" data-f="apikey" value="${esc(S.api.key)}" placeholder="sk-ant-…" autocomplete="off">
+  <label class="lbl">Modello</label><input data-f="apimodel" value="${esc(S.api.model)}">
+  <button class="btn" data-a="apisave">Salva</button><div class="muted small" style="margin-top:6px">La chiave resta solo su questo telefono e non va nei backup.</div></div>`;
   const sa=matchMedia('(display-mode: standalone)').matches;
   if(!sa)h+=`<div class="card"><h3>Installa</h3>${S.inst?'<button class="btn pri" data-a="install">Installa sulla schermata Home</button>':'<div class="muted">In Chrome: menu ⋮ → <b>Aggiungi a schermata Home</b> / <b>Installa app</b>.</div>'}</div>`;
   h+=`<div class="card"><h3>App</h3><div class="muted small">Versione ${APPV} · dati salvati solo su questo telefono${S.persist?' (archivio protetto)':''}</div><button class="btn" data-a="aggiorna">Cerca aggiornamenti</button></div>`;
   return{t:'Opzioni',h};
 };
+/* ---------- scheda da foto ---------- */
+function applyStart(p){
+  p.sessioni.forEach(s=>s.esercizi.forEach(e=>{
+    const has=e.peso!=null||(Array.isArray(e.pesi)&&e.pesi.length);
+    if(has){const m=S.mem[e.key]||{};if(!m.data||m.fonte||m.data<p.inizio){
+      if(Array.isArray(e.pesi)&&e.pesi.length){m.pesi=e.pesi.map(num);const v=m.pesi.filter(x=>x!=null);if(v.length)m.peso=Math.max(...v)}else{m.peso=num(e.peso);m.pesi=null;m.rip=e.rip}
+      m.data=(p.inizio||todayISO())+'T12:00:00';m.fonte='scheda';m.imp={...(e.impostazioni||{}),...(m.imp||{})};S.mem[e.key]=m}}
+    delete e.peso;delete e.pesi}));
+}
+async function loadImg(file){
+  const url=URL.createObjectURL(file),img=new Image();await new Promise((r,j)=>{img.onload=r;img.onerror=j;img.src=url});
+  const k=Math.min(1,1600/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);return c.toDataURL('image/jpeg',.82);
+}
+function fotoPrompt(){
+  const n=S.plans.reduce((a,p)=>Math.max(a,+((p.nome.match(/\d+/)||[0])[0])),0)+1;
+  const kk=Object.entries(knownKeys()).map(([k,v])=>`${k} (${v})`).join(', ');
+  return`Trascrivi questa scheda di palestra nel formato JSON indicato. Rispondi SOLO con il JSON, senza altro testo.
+Regole:
+- "nome": "Scheda ${n}". "inizio": data in formato AAAA-MM-GG (di solito scritta a mano vicino a "Note"). "durata": come scritta in alto a destra (es. "6–7 settimane").
+- Ogni SESSIONE diventa un elemento di "sessioni", nello stesso ordine.
+- Ogni esercizio: "nome" come scritto ma con iniziale maiuscola e resto minuscolo; "recupero" come scritto nel riquadro (es. "1'", "1'30\"").
+- Tipo: scritto 3 X 12 → "tipo":"fisse","serie":3,"rip":12. Scritto 12/10/8/6 → "tipo":"piramide","piramide":[12,10,8,6]. A tempo (es. plank 3 X 1') → "tipo":"tempo","serie":3,"durata":"1'". Crunch e simili senza peso → "tipo":"libero","serie","rip".
+- Numeri scritti a mano (penna/matita) nel riquadro: sono i pesi in kg. Serie fisse → "peso": numero. Piramide → "pesi": [un numero per serie]. Se non leggibile, ometti.
+- Annotazioni di regolazione (es. "INCL. 1", "N°4", "sedile 3") → "impostazioni" con campi tra: inclinazione, sedile, schienale, perno, presa, altro.
+- In ogni sessione aggiungi come primo esercizio {"key":"riscaldamento","nome":"Riscaldamento run/bike","tipo":"cardio","minuti":"5–10","attrezzo":"Run"} e come ultimo {"key":"finale","nome":"Finale run/bike","tipo":"cardio","minuti":"15","attrezzo":"Run"}.
+- "key": se l'esercizio coincide con uno già fatto usa la sua key: ${kk}. Altrimenti nome in minuscolo con trattini (es. "leg-press").
+Esempio:
+{"tipo":"scheda-palestra","nome":"Scheda ${n}","inizio":"2026-12-21","durata":"6–7 settimane","sessioni":[{"nome":"Allenamento A","esercizi":[{"key":"riscaldamento","nome":"Riscaldamento run/bike","tipo":"cardio","minuti":"5–10","attrezzo":"Run"},{"key":"chest-press","nome":"Chest press","tipo":"fisse","serie":3,"rip":12,"recupero":"1'","peso":30},{"key":"lat-machine","nome":"Lat machine","tipo":"piramide","piramide":[12,10,8,6],"recupero":"1'30\"","pesi":[20,25,30,35]},{"key":"finale","nome":"Finale run/bike","tipo":"cardio","minuti":"15","attrezzo":"Run"}]}]}`;
+}
+function fromText(t){
+  const a=t.indexOf('{'),b=t.lastIndexOf('}');let o;
+  try{o=JSON.parse(t.slice(a,b+1))}catch(e){alert('Non trovo una scheda valida nel testo incollato.');return}
+  if(!o||!Array.isArray(o.sessioni)){alert('Non trovo una scheda valida nel testo incollato.');return}
+  const p=normPlan(o);p.id='';p.foto=S.foto;S.foto=null;S.ui.incolla='';startEdit(null,p);
+}
+async function aiTranscribe(){
+  if(!navigator.onLine)return alert('Serve la connessione a internet per la trascrizione automatica.');
+  S.ui.busy=true;rr();
+  try{
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':S.api.key.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:S.api.model||'claude-sonnet-5-5',max_tokens:6000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:S.foto.split(',')[1]}},{type:'text',text:fotoPrompt()}]}]})});
+    const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error((d.error&&d.error.message)||('errore '+r.status));
+    S.ui.busy=false;fromText((d.content||[]).filter(c=>c.type==='text').map(c=>c.text).join(''));
+  }catch(e){S.ui.busy=false;alert('Trascrizione non riuscita: '+e.message);rr()}
+}
+async function copyText(t){try{await navigator.clipboard.writeText(t);toast('Testo copiato')}catch(e){const x=document.createElement('textarea');x.value=t;document.body.appendChild(x);x.select();document.execCommand('copy');x.remove();toast('Testo copiato')}}
+V.foto=()=>{
+  if(!S.foto)return V.schede();
+  let h=`<div class="card"><img src="${S.foto}" style="width:100%;border-radius:10px"><button class="btn sm" data-a="foto">Cambia foto</button></div>`;
+  if(S.api.key)h+=`<div class="card"><h3>Automatica</h3><div class="muted small">Serve la rete. Costo: pochi centesimi per foto sul tuo credito API.</div><button class="btn big pri" data-a="ai" ${S.ui.busy?'disabled':''}>${S.ui.busy?'⏳ Sto leggendo la scheda…':'✨ Trascrivi automaticamente'}</button></div>`;
+  h+=`<div class="card"><h3>${S.api.key?'Con l’app Claude':'Con l’app Claude (anche gratuita)'}</h3>
+  <div class="small">1. Tocca <b>Copia testo</b>.<br>2. Tocca <b>Condividi foto</b> e scegli Claude, oppure apri Claude e allega la foto.<br>3. Incolla il testo e invia.<br>4. Copia la risposta e incollala qui sotto.</div>
+  <div class="row"><button class="btn" data-a="cpPrompt">Copia testo</button><button class="btn" data-a="shFoto">Condividi foto</button></div>
+  <textarea data-f="incolla" rows="4" placeholder="Incolla qui la risposta di Claude" style="margin-top:10px">${esc(S.ui.incolla||'')}</textarea>
+  <button class="btn pri" data-a="incolla">Importa risposta</button></div>
+  <div class="card"><h3>A mano</h3><div class="muted small">Crei la scheda esercizio per esercizio, con la foto visibile in alto.</div><button class="btn" data-a="fotoMano">✏️ Inserisci a mano</button></div>`;
+  return{t:'Scheda da foto',h,back:'schede'};
+};
 /* ---------- render ---------- */
 function render(){
   const r=(V[S.view]||V.oggi)(S.arg);
   $('#app').innerHTML=r.h;$('#ttl').textContent=r.t;S.back=r.back||null;$('#bk').hidden=!r.back;
-  const tab={allena:'oggi',scheda:'schede',edit:'schede',dettaglio:'storico'}[S.view]||S.view;
+  const tab={allena:'oggi',scheda:'schede',edit:'schede',foto:'schede',dettaglio:'storico'}[S.view]||S.view;
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===tab));
   if(S.view==='allena')wake();
 }
@@ -705,10 +776,11 @@ async function handleImport(inp){
   const list=Array.isArray(o)?o:(o&&o.schede?o.schede:[o]);let last=null;
   for(const raw of list){if(!raw||!Array.isArray(raw.sessioni)){alert('Il file non contiene una scheda valida');return}
     const n=normPlan(raw);if(S.plans.some(x=>x.id===n.id)&&!confirm(`Esiste già "${n.nome}". Sostituirla?`))continue;
-    await dbPut('plans',n);S.plans=S.plans.filter(x=>x.id!==n.id).concat(n);last=n}
+    applyStart(n);await saveMem();await dbPut('plans',n);S.plans=S.plans.filter(x=>x.id!==n.id).concat(n);last=n}
   if(last){if(last!==activePlan()&&confirm(`Impostare "${last.nome}" come scheda attiva?`)){S.set.activeId=last.id;await saveSet()}toast('Scheda importata');go('scheda',last.id)}
 }
 $('#fimp').addEventListener('change',e=>handleImport(e.target));
+$('#ffoto').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{S.foto=await loadImg(f);S.ui.incolla='';go('foto')}catch(x){alert('Impossibile leggere la foto')}});
 const cleanPlan=p=>{const c=JSON.parse(JSON.stringify(p));delete c._prog;c.sessioni.forEach(s=>s.esercizi.forEach(e=>delete e._pir));return c};
 /* ---------- eventi ---------- */
 document.addEventListener('click',async ev=>{
@@ -739,6 +811,13 @@ document.addEventListener('click',async ev=>{
   case'esporta':{const p=S.plans.find(x=>x.id===id);await shareOrDownload(`${p.id}.json`,JSON.stringify(cleanPlan(p),null,2),true);break}
   case'elimina':{const p=S.plans.find(x=>x.id===id);if(!confirm(`Eliminare "${p.nome}"?\nGli allenamenti nello storico restano.`))return;await dbDel('plans',id);S.plans=S.plans.filter(x=>x.id!==id);if(S.set.activeId===id){S.set.activeId=(activePlan()||{}).id||null;await saveSet()}go('schede');break}
   case'import':$('#fimp').click();break;
+  case'foto':$('#ffoto').click();break;
+  case'ai':await aiTranscribe();break;
+  case'cpPrompt':await copyText(fotoPrompt());break;
+  case'shFoto':{try{const bl=await (await fetch(S.foto)).blob(),fl=new File([bl],'scheda.jpg',{type:'image/jpeg'});if(navigator.canShare&&navigator.canShare({files:[fl]}))await navigator.share({files:[fl]});else toast('Condivisione non disponibile: allega la foto dalla galleria')}catch(e){}break}
+  case'incolla':fromText(S.ui.incolla||'');break;
+  case'fotoMano':{const p={tipo:'scheda-palestra',id:'',nome:'Nuova scheda',inizio:todayISO(),durata:'',recupero:'',progressione:[],foto:S.foto,sessioni:[{nome:'Allenamento A',esercizi:[]},{nome:'Allenamento B',esercizi:[]}]};S.foto=null;startEdit(null,p);break}
+  case'apisave':await kvSet('api',S.api);toast(S.api.key?'Chiave salvata':'Chiave rimossa');rr();break;
   case'edOpen':S.edOpen=S.edOpen===el.dataset.k?null:el.dataset.k;rr();break;
   case'edAddE':{const s=S.ed.sessioni[+el.dataset.s];s.esercizi.push({key:'',nome:'Nuovo esercizio',tipo:'fisse',disegno:'generico',serie:3,rip:12,recupero:'',note:'',_pir:''});S.edOpen=`${el.dataset.s}-${s.esercizi.length-1}`;rr();break}
   case'edDelE':{const[si,ei]=el.dataset.k.split('-').map(Number);if(confirm('Eliminare l’esercizio?')){S.ed.sessioni[si].esercizi.splice(ei,1);S.edOpen=null;rr()}break}
@@ -769,6 +848,9 @@ document.addEventListener('input',ev=>{
   case'wnota':S.cur.nota=v;saveCur();break;
   case'card':e.cardio[el.dataset.k]=num(v);e.touched=true;saveCur();break;
   case'ed':setPath(S.ed,el.dataset.p,el.dataset.n?num(v):v);break;
+  case'incolla':S.ui.incolla=v;break;
+  case'apikey':S.api.key=v.trim();break;
+  case'apimodel':S.api.model=v.trim();break;
   }
 });
 document.addEventListener('change',ev=>{
