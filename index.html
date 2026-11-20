@@ -146,7 +146,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="fimp" accept=".json,application/json" hidden>
 <script>
 'use strict';
-const APPV='1.2';
+const APPV='1.3';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -183,6 +183,7 @@ async function load(){
   S.workouts=(await dbAll('workouts')).sort((a,b)=>a.data<b.data?1:-1);
   (await dbAll('kv')).forEach(r=>{if(r.k==='mem')S.mem=r.v||{};else if(r.k==='set')Object.assign(S.set,r.v);else if(r.k==='cur')S.cur=r.v});
   if(!S.plans.length&&!S.set.seeded){for(const p of SEED){const n=normPlan(p);await dbPut('plans',n);S.plans.push(n)}S.set.activeId='scheda-2';S.set.seeded=true;await saveSet()}
+  await migrate();
 }
 const activePlan=()=>S.plans.find(p=>p.id===S.set.activeId)||[...S.plans].sort((a,b)=>(b.inizio||'').localeCompare(a.inizio||''))[0];
 /* ---------- schede iniziali ---------- */
@@ -204,27 +205,45 @@ const SEED=[
 {id:'scheda-2',nome:'Scheda 2',inizio:'2026-11-09',durata:'6–7 settimane',recupero:"1'",progressione:[],sessioni:[
  {nome:'Allenamento A',esercizi:[
   RISC,
-  {key:'affondi-indietro',nome:'Affondi indietro',serie:3,rip:12,note:'Peso del singolo manubrio'},
-  {key:'leg-extension',nome:'Leg extension',serie:3,rip:12},
-  {key:'pectoral',nome:'Pectoral',serie:3,rip:12},
-  {key:'spinte-30',nome:'Spinte 30°',serie:3,rip:12,impostazioni:{inclinazione:'1'},note:'Manubri su panca inclinata'},
-  {key:'lento-avanti',nome:'Lento avanti in piedi',serie:3,rip:12},
-  {key:'curl-cavo',nome:'Curl cavo',serie:3,rip:12},
-  {key:'curl-panca-45',nome:'Curl panca 45°',serie:3,rip:12,note:'Peso del singolo manubrio'},
-  {key:'crunch',nome:'Crunch',tipo:'libero',serie:3,rip:15},
+  {key:'affondi-indietro',nome:'Affondi indietro',tipo:'piramide',piramide:[12,10,8,6],recupero:"1'30\"",note:'Peso del singolo manubrio'},
+  {key:'leg-extension',nome:'Leg extension',serie:3,rip:12,recupero:"1'"},
+  {key:'pectoral',nome:'Pectoral',serie:3,rip:15,recupero:"1'"},
+  {key:'spinte-30',nome:'Spinte 30°',tipo:'piramide',piramide:[12,10,8,6],recupero:"1'30\"",impostazioni:{inclinazione:'1'},note:'Manubri su panca inclinata'},
+  {key:'lento-avanti',nome:'Lento avanti in piedi',tipo:'piramide',piramide:[12,10,8,6],recupero:"1'30\"",note:'Manubri'},
+  {key:'curl-cavo',nome:'Curl cavo',serie:3,rip:10,recupero:"1'30\""},
+  {key:'curl-panca-45',nome:'Curl panca 45°',serie:3,rip:10,recupero:"1'",note:'Peso del singolo manubrio'},
+  {key:'crunch',nome:'Crunch',tipo:'libero',serie:3,rip:15,recupero:"1'"},
   FIN('15')]},
  {nome:'Allenamento B',esercizi:[
   RISC,
-  {key:'hyperextension',nome:'Hyperextension',serie:3,rip:12,impostazioni:{perno:'N°4'}},
-  {key:'leg-curl-mono',nome:'Leg curl mono',serie:3,rip:12,note:'Una gamba alla volta'},
-  {key:'v-row',nome:'V-row orizzontale',serie:3,rip:12},
-  {key:'lat-machine',nome:'Lat machine',serie:3,rip:12},
-  {key:'face-pull',nome:'Face pull',serie:3,rip:12},
-  {key:'push-down',nome:'Push down',serie:3,rip:12},
-  {key:'french-manubri',nome:'French manubri',serie:3,rip:12,note:'Peso del singolo manubrio'},
-  {key:'plank',nome:'Plank',tipo:'tempo',serie:3,durata:"1'"},
+  {key:'hyperextension',nome:'Hyperextension',serie:3,rip:10,recupero:"1'30\"",impostazioni:{perno:'N°4'}},
+  {key:'leg-curl-mono',nome:'Leg curl mono',tipo:'piramide',piramide:[12,10,8,6],recupero:"1'",note:'Una gamba alla volta'},
+  {key:'v-row',nome:'V-row orizzontale',serie:3,rip:15,recupero:"1'"},
+  {key:'lat-machine',nome:'Lat machine',tipo:'piramide',piramide:[12,10,8,6],recupero:"1'30\""},
+  {key:'face-pull',nome:'Face pull',serie:3,rip:12,recupero:"1'"},
+  {key:'push-down',nome:'Push down',serie:3,rip:10,recupero:"1'30\""},
+  {key:'french-manubri',nome:'French manubri',serie:3,rip:10,recupero:"1'",note:'Peso del singolo manubrio'},
+  {key:'plank',nome:'Plank',tipo:'tempo',serie:3,durata:"1'",recupero:"1'"},
   FIN('15')]}]}
 ];
+const START2={'affondi-indietro':{pesi:[4,5,6,8]},'leg-extension':{peso:10,rip:12},'pectoral':{peso:20,rip:15},'spinte-30':{pesi:[6,8,10,10]},'lento-avanti':{pesi:[2,4,5,6]},'curl-cavo':{peso:30,rip:10},'curl-panca-45':{peso:6,rip:10},
+ 'hyperextension':{peso:0,rip:10},'leg-curl-mono':{pesi:[10,15,20,25]},'v-row':{peso:25,rip:15},'lat-machine':{pesi:[20,25,30,35]},'face-pull':{peso:25,rip:12},'push-down':{peso:35,rip:10},'french-manubri':{peso:4,rip:10}};
+async function migrate(){
+  if((S.set.dataV||1)>=2)return;
+  const p=normPlan(SEED.find(x=>x.id==='scheda-2'));await dbPut('plans',p);S.plans=S.plans.filter(x=>x.id!=='scheda-2').concat(p);
+  // storico Scheda 1 (pesi iniziali e finali dalla vecchia app)
+  const S1=[['goblet-squat','Goblet squat',4,10],['chest-press','Chest press',20,35],['vertical-traction','Vertical traction',35,50],['curl-cavo','Bicipiti poliercolina',20,20],['push-down','Tricipiti poliercolina',20,30],['shoulder-press','Shoulder press',15,25]];
+  const mk=(id,data,wk,serie,rip,col,nota)=>({id,data,fine:null,schedaId:'scheda-1',schedaNome:'Scheda 1',sessione:0,sessioneNome:'Allenamento',settimana:wk,nota,importato:true,
+    esercizi:[...S1.map(([key,nome,a,b])=>({key,nome,tipo:'fisse',disegno:guessDr(nome),presc:`${serie}×${rip}`,rip,peso:col?b:a,touched:true,imp:{},nota:'',sets:Array.from({length:serie},()=>({f:true}))})),
+      ...[['crunch-inversi','Crunch inversi'],['crunch','Crunch']].map(([key,nome])=>({key,nome,tipo:'libero',disegno:guessDr(nome),presc:`${serie}×${rip}`,rip,imp:{},nota:'',sets:Array.from({length:serie},()=>({f:true}))}))]});
+  for(const w of[mk('s1-inizio','2026-10-07T18:00:00',1,3,15,0,'Pesi iniziali (dalla vecchia app)'),mk('s1-fine','2026-11-08T18:00:00',4,5,8,1,'Pesi finali (dalla vecchia app)')])
+    if(!S.workouts.some(x=>x.id===w.id)){await dbPut('workouts',w);S.workouts.push(w)}
+  S.workouts.sort((a,b)=>a.data<b.data?1:-1);
+  for(const[k,,,b]of S1){const m=S.mem[k]||{};if(!m.data){Object.assign(m,{peso:b,rip:8,data:'2026-11-08T18:00:00'});S.mem[k]=m}}
+  for(const[k,v]of Object.entries(START2)){const m=S.mem[k]||{};if(!m.data||m.data<'2026-11-09'){Object.assign(m,v,{data:'2026-11-09T12:00:00',fonte:'scheda'});if(v.pesi)m.peso=Math.max(...v.pesi);S.mem[k]=m}}
+  if(!S.mem['spinte-30'].imp)S.mem['spinte-30'].imp={inclinazione:'1'};
+  S.set.dataV=2;await saveMem();await saveSet();
+}
 function normPlan(p){
   p=JSON.parse(JSON.stringify(p));p.tipo='scheda-palestra';p.nome=p.nome||'Scheda';p.id=p.id||slug(p.nome)||uid();
   p.progressione=(p.progressione||[]).filter(g=>g&&g.rip&&g.serie);
@@ -346,7 +365,7 @@ const isDone=e=>e.tipo==='cardio'?!!e.cardio.f:e.sets.length>0&&e.sets.every(s=>
 function buildEx(p,ex,wk){
   const key=ex.key||slug(ex.nome),m=S.mem[key]||{},ps=prescr(p,ex,wk);
   const e={key,nome:ex.nome,tipo:ex.tipo||'fisse',disegno:ex.disegno||guessDr(ex.nome),presc:prescStr(ex,ps),rip:ps.rip,recupero:ex.recupero||p.recupero||'',noteIstr:ex.note||'',imp:{...(ex.impostazioni||{}),...(m.imp||{})},nota:'',sets:[],
-    last:m.data?{data:m.data,peso:m.peso,pesi:m.pesi,rip:m.rip,cardio:m.cardio}:null};
+    last:m.data?{data:m.data,peso:m.peso,pesi:m.pesi,rip:m.rip,cardio:m.cardio,fonte:m.fonte}:null};
   const n=k=>Array.from({length:k||1},()=>({f:false}));
   if(e.tipo==='fisse'){e.peso=m.peso??null;e.sets=n(ps.serie);if(m.rip&&ps.rip<m.rip)e.hint='Ripetizioni calate rispetto all’ultima volta: valuta di aumentare il peso'}
   else if(e.tipo==='piramide'){e.sets=(ex.piramide||[]).map((r,i)=>({rip:r,peso:m.pesi&&m.pesi[i]!=null?m.pesi[i]:(m.peso??null),f:false}))}
@@ -365,7 +384,7 @@ async function finishWorkout(){
   const w=S.cur;w.fine=new Date().toISOString();
   w.esercizi.forEach(e=>{
     const m=S.mem[e.key]||{};m.imp={...e.imp};
-    if(usedEx(e)){m.data=w.data;
+    if(usedEx(e)){m.data=w.data;delete m.fonte;
       if(e.tipo==='fisse'){if(e.peso!=null)m.peso=e.peso;m.rip=e.rip;m.pesi=null}
       else if(e.tipo==='piramide'){m.pesi=e.sets.map(s=>s.peso);const v=m.pesi.filter(x=>x!=null);if(v.length)m.peso=Math.max(...v)}
       else if(e.tipo==='cardio'){const{f,...c}=e.cardio;m.cardio=c}
@@ -446,7 +465,7 @@ function exCard(e,i,open,cur){
   if(!open)return h+'</div>';
   h+=`<div class="exb"><div class="figbig">${drawEx(drKey(e),true)}</div>`;
   if(e.noteIstr)h+=`<div class="small muted">📋 ${esc(e.noteIstr)}</div>`;
-  h+=e.last?`<div class="last">Ultima volta (${fmtD(e.last.data)}): ${lastStr(e)}</div>`:'<div class="last muted">Prima volta</div>';
+  h+=e.last?`<div class="last">${e.last.fonte?'Dalla scheda cartacea':`Ultima volta (${fmtD(e.last.data)})`}: ${lastStr(e)}</div>`:'<div class="last muted">Prima volta</div>';
   if(e.hint)h+=`<div class="hint">↑ ${esc(e.hint)}</div>`;
   const D=`data-i="${i}"`;
   if(e.tipo==='fisse'){
