@@ -147,7 +147,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="ffoto" accept="image/*" hidden>
 <script>
 'use strict';
-const APPV='1.9';
+const APPV='1.10';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -648,9 +648,9 @@ function chartSVG(pts,unit){
   const d=pts.map(p=>`${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
   s+=`<polygon class="ar" points="${x(pts[0].t)},${H-pb} ${d} ${x(pts.at(-1).t)},${H-pb}"/><polyline class="pl" points="${d}"/>`;
   pts.forEach(p=>{s+=`<circle cx="${x(p.t)}" cy="${y(p.v)}" r="3.5"/>`});
-  // data sotto ogni cambio di peso (più prima e ultima), senza sovrapposizioni
-  let lastX=-99;
-  pts.forEach((p,i)=>{const ch=i===0||i===pts.length-1||p.v!==pts[i-1].v;if(!ch)return;const xx=x(p.t);if(xx-lastX<16&&i!==pts.length-1)return;lastX=xx;
+    let lastX=-99;
+  // data e peso sotto/sopra ogni punto; se due punti sono troppo vicini si salta quello senza cambio di peso
+  pts.forEach((p,i)=>{const ch=i===0||i===pts.length-1||p.v!==pts[i-1].v;const xx=x(p.t);if(xx-lastX<16&&!ch)return;lastX=xx;
     s+=`<line class="gl" x1="${xx}" x2="${xx}" y1="${H-pb}" y2="${H-pb+4}"/><text transform="translate(${xx+3} ${H-pb+8}) rotate(-50)" text-anchor="end">${fmtD(p.t)}</text>`;
     s+=`<text x="${xx}" y="${y(p.v)-7}" text-anchor="middle" style="fill:var(--tx);font-weight:700">${fmtKg(p.v)}</text>`});
   s+=`<text x="${pl}" y="9">${unit}</text></svg>`;
