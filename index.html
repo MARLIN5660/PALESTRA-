@@ -40,6 +40,9 @@ h2{margin:2px 0 4px;font-size:22px}h3{margin:0 0 6px;font-size:18px}
 .btn.sm{display:inline-block;width:auto;padding:11px 15px;font-size:15px;margin:8px 6px 0 0}
 .btn small{font-weight:500;opacity:.85}
 .warn{background:var(--warnb);color:var(--warn);border-radius:12px;padding:10px 12px;margin-top:10px;font-weight:600;font-size:15px}
+.notep{background:var(--warnb);color:var(--tx);border-radius:12px;padding:10px 12px;margin:8px 0;display:flex;gap:8px;align-items:flex-start;font-size:15px}.notep div{flex:1}.notep button{border:0;background:none;color:var(--mu);font-size:18px;padding:0 4px;cursor:pointer}
+.nx{margin-top:12px;padding-top:4px;border-top:1px solid var(--ln)}.nx .wctl{margin:8px 0 0}.nx .sq{width:56px;height:56px;font-size:26px}.nx .wval{font-size:24px;font-weight:800}
+.ntag{color:var(--ac);font-style:italic}
 .hint{color:var(--ac);font-weight:600;font-size:14.5px;margin:6px 0}
 .row{display:flex;align-items:center;gap:8px}
 input,select,textarea{font:inherit;color:var(--tx);background:var(--card2);border:1px solid var(--ln);border-radius:12px;padding:12px;width:100%;min-height:48px}
@@ -147,7 +150,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="ffoto" accept="image/*" hidden>
 <script>
 'use strict';
-const APPV='1.11';
+const APPV='1.12';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -403,8 +406,12 @@ function buildEx(p,ex,wk){
   const e={key,nome:ex.nome,tipo:ex.tipo||'fisse',disegno:ex.disegno||guessDr(ex.nome),presc:prescStr(ex,ps),rip:ps.rip,recupero:ex.recupero||p.recupero||'',noteIstr:ex.note||'',imp:{...(ex.impostazioni||{}),...(m.imp||{})},nota:'',sets:[],
     last:m.data?{data:m.data,peso:m.peso,pesi:m.pesi,rip:m.rip,cardio:m.cardio,fonte:m.fonte}:null};
   const n=k=>Array.from({length:k||1},()=>({f:false}));
-  if(e.tipo==='fisse'){e.peso=m.peso??null;e.sets=n(ps.serie);if(m.rip&&ps.rip<m.rip)e.hint='Ripetizioni calate rispetto all’ultima volta: valuta di aumentare il peso'}
-  else if(e.tipo==='piramide'){e.sets=(ex.piramide||[]).map((r,i)=>({rip:r,peso:m.pesi&&m.pesi[i]!=null?m.pesi[i]:(m.peso??null),f:false}))}
+  e.notaPrec=m.nota||'';e.scelta=null;
+  if(e.tipo==='fisse'){e.peso=m.peso??null;e.sets=n(ps.serie);if(m.rip&&ps.rip<m.rip)e.hint='↑ Ripetizioni calate rispetto all’ultima volta: valuta di aumentare il peso';
+    if(m.scelta==='su'&&m.next!=null){e.peso=m.next;e.hint=`↑ L’ultima volta hai deciso di aumentare: proposto ${fmtKg(m.next)} kg`}}
+  else if(e.tipo==='piramide'){e.sets=(ex.piramide||[]).map((r,i)=>({rip:r,peso:m.pesi&&m.pesi[i]!=null?m.pesi[i]:(m.peso??null),f:false}));
+    if(m.scelta==='su'&&Array.isArray(m.next)){e.sets.forEach((s,i)=>{if(m.next[i]!=null)s.peso=m.next[i]});e.hint=`↑ L’ultima volta hai deciso di aumentare: proposto ${m.next.map(fmtKg).join('/')} kg`}}
+  if(m.scelta==='uguale'&&(e.tipo==='fisse'||e.tipo==='piramide'))e.hint='= L’ultima volta hai deciso di restare con lo stesso peso';
   else if(e.tipo==='tempo'){e.durata=ex.durata;e.sets=n(ex.serie)}
   else if(e.tipo==='libero'){e.sets=n(ps.serie)}
   else if(e.tipo==='cardio'){const c=m.cardio||{};e.cardio={attrezzo:c.attrezzo||ex.attrezzo||'Run',minuti:c.minuti??null,velocita:c.velocita??null,livello:c.livello??null,f:false}}
@@ -420,6 +427,8 @@ async function finishWorkout(){
   const w=S.cur;w.fine=new Date().toISOString();
   w.esercizi.forEach(e=>{
     const m=S.mem[e.key]||{};m.imp={...e.imp};
+    if(e.nota&&e.nota.trim())m.nota=e.nota.trim();else if(e.notaOff)delete m.nota;
+    if(usedEx(e)||e.scelta){if(e.scelta==='su'){m.scelta='su';m.next=e.next}else if(e.scelta==='uguale'){m.scelta='uguale';delete m.next}else{delete m.scelta;delete m.next}}
     if(usedEx(e)){m.data=w.data;delete m.fonte;
       if(e.tipo==='fisse'){if(e.peso!=null)m.peso=e.peso;m.rip=e.rip;m.pesi=null}
       else if(e.tipo==='piramide'){m.pesi=e.sets.map(s=>s.peso);const v=m.pesi.filter(x=>x!=null);if(v.length)m.peso=Math.max(...v)}
@@ -479,7 +488,7 @@ function planExRow(p,ex,wk){
   const dk=ex.tipo==='cardio'?(((m.cardio&&m.cardio.attrezzo)||ex.attrezzo)==='Run'?'run':'bike'):(ex.disegno||guessDr(ex.nome));
   const lw=ex.tipo==='piramide'&&m.pesi?m.pesi.map(fmtKg).join('/')+' kg':(ex.tipo==='fisse'&&m.peso!=null?fmtKg(m.peso)+' kg':'');
   const rec=ex.tipo!=='cardio'&&ex.recupero?'rec. '+ex.recupero:'';
-  return`<div class="prev"><div class="thumb">${drawEx(dk)}</div><div class="exn"><div class="exname">${esc(ex.nome)}</div><div class="muted small">${[prescStr(ex,ps),rec,lw,impShort(imp)].filter(Boolean).map(esc).join(' · ')}</div>${ex.note?`<div class="small muted">${esc(ex.note)}</div>`:''}</div></div>`;
+  return`<div class="prev"><div class="thumb">${drawEx(dk)}</div><div class="exn"><div class="exname">${esc(ex.nome)}</div><div class="muted small">${[prescStr(ex,ps),rec,lw,impShort(imp)].filter(Boolean).map(esc).join(' · ')}</div>${ex.note?`<div class="small muted">${esc(ex.note)}</div>`:''}${m.scelta==='su'&&m.next!=null?`<div class="small ntag">↑ prossima volta ${Array.isArray(m.next)?m.next.map(fmtKg).join('/'):fmtKg(m.next)} kg</div>`:''}${m.nota?`<div class="small ntag">📝 ${esc(m.nota)}</div>`:''}</div></div>`;
 }
 function lastStr(e){
   const l=e.last;if(!l)return'';
@@ -493,7 +502,8 @@ function exSum(e){
   if(e.tipo==='fisse')s=e.peso!=null?fmtKg(e.peso)+' kg':'';
   else if(e.tipo==='piramide')s=e.sets.some(x=>x.peso!=null)?e.sets.map(x=>fmtKg(x.peso)).join('/')+' kg':'';
   else if(e.tipo==='cardio')s=e.cardio.attrezzo+(e.cardio.minuti!=null?` ${fmtKg(e.cardio.minuti)}'`:'');
-  return[e.presc,s,impShort(e.imp)].filter(Boolean).map(esc).join(' · ');
+  const nt=(e.nota&&e.nota.trim())||(!e.notaOff&&e.notaPrec)||'';
+  return[e.presc,s,impShort(e.imp)].filter(Boolean).map(esc).join(' · ')+(e.scelta==='su'?' · <b class="b">↑ prossima</b>':e.scelta==='uguale'?' · <b>= prossima</b>':'')+(nt?`<div class="ntag">📝 ${esc(nt.length>45?nt.slice(0,45)+'…':nt)}</div>`:'');
 }
 function exCard(e,i,open,cur){
   const done=isDone(e);
@@ -502,7 +512,8 @@ function exCard(e,i,open,cur){
   h+=`<div class="exb"><div class="figbig">${drawEx(drKey(e),true)}</div>`;
   if(e.noteIstr)h+=`<div class="small muted">📋 ${esc(e.noteIstr)}</div>`;
   h+=e.last?`<div class="last">${e.last.fonte?'Dalla scheda cartacea':`Ultima volta (${fmtD(e.last.data)})`}: ${lastStr(e)}</div>`:'<div class="last muted">Prima volta</div>';
-  if(e.hint)h+=`<div class="hint">↑ ${esc(e.hint)}</div>`;
+  if(e.notaPrec&&!e.notaOff)h+=`<div class="notep"><div>📝 <b>Nota dell’ultima volta:</b> ${esc(e.notaPrec)}</div><button data-a="notaoff" data-i="${i}" aria-label="Cancella nota">✕</button></div>`;
+  if(e.hint)h+=`<div class="hint">${esc(e.hint)}</div>`;
   const D=`data-i="${i}"`;
   if(e.tipo==='fisse'){
     h+=`<div class="wctl"><button class="sq" data-a="peso" ${D} data-d="-1">−</button><div class="wval"><input type="number" inputmode="decimal" step="any" data-f="peso" ${D} value="${e.peso??''}" placeholder="–"><span>kg</span></div><button class="sq" data-a="peso" ${D} data-d="1">+</button></div>`;
@@ -519,9 +530,14 @@ function exCard(e,i,open,cur){
     h+=`<div class="cgrid">${[['minuti','Minuti'],['velocita','Velocità'],['livello','Livello']].map(([k,l])=>`<div><label class="lbl">${l}</label><input type="number" inputmode="decimal" step="any" data-f="card" ${D} data-k="${k}" value="${c[k]??''}" placeholder="–"></div>`).join('')}</div>`;
     h+=`<button class="btn big ${c.f?'ok':''}" data-a="cfatto" ${D}>${c.f?'✓ Fatto':'Segna come fatto'}</button>`;
   }
+  if(e.tipo==='fisse'||e.tipo==='piramide'){
+    h+=`<div class="nx"><label class="lbl">Prossima volta</label><div class="seg"><button class="${e.scelta==='uguale'?'on':''}" data-a="scelta" ${D} data-v="uguale">= Stesso peso</button><button class="${e.scelta==='su'?'on':''}" data-a="scelta" ${D} data-v="su">↑ Aumenta</button></div>`;
+    if(e.scelta==='su')h+=`<div class="wctl"><button class="sq" data-a="nextp" ${D} data-d="-1">−</button><div class="wval">${Array.isArray(e.next)?e.next.map(fmtKg).join(' / '):fmtKg(e.next)} kg</div><button class="sq" data-a="nextp" ${D} data-d="1">+</button></div>`;
+    h+='</div>';
+  }
   if(e.tipo!=='cardio'){const rs=parseSec(e.recupero);h+=`<div class="rests">${(rs.length?rs:[60]).map(s=>`<button class="btn rest" data-a="rest" data-s="${s}">⏱ Recupero ${fmtRest(s)}</button>`).join('')}</div>`}
   if(e.tipo!=='cardio'){const u='imp'+i;h+=`<details data-u="${u}" ${S.ui[u]?'open':''}><summary>⚙ Impostazioni macchina${impShort(e.imp)?' · '+esc(impShort(e.imp)):''}</summary><div class="grid2">${IMPF.map(([k,l])=>`<div><label class="lbl">${l}</label><input data-f="imp" ${D} data-k="${k}" value="${esc(e.imp[k]||'')}"></div>`).join('')}</div></details>`}
-  const u='nt'+i;h+=`<details data-u="${u}" ${S.ui[u]||e.nota?'open':''}><summary>📝 Nota</summary><textarea data-f="nota" ${D} rows="2" placeholder="Nota breve">${esc(e.nota)}</textarea></details>`;
+  const u='nt'+i;h+=`<details data-u="${u}" ${S.ui[u]?'open':''}><summary>📝 ${e.nota&&e.nota.trim()?'Nota: <span class="ntag">'+esc(e.nota.trim().length>40?e.nota.trim().slice(0,40)+'…':e.nota.trim())+'</span>':'Aggiungi nota'}</summary><textarea data-f="nota" ${D} rows="2" placeholder="Nota breve">${esc(e.nota)}</textarea></details>`;
   return h+'</div></div>';
 }
 V.allena=()=>{
@@ -614,7 +630,7 @@ V.storico=()=>{
   S.workouts.forEach(w=>{
     const m=new Date(w.data).toLocaleDateString('it-IT',{month:'long',year:'numeric'});if(m!==mm){mm=m;h+=`<div class="muted lblh">${m}</div>`}
     const dur=w.fine?Math.round((new Date(w.fine)-new Date(w.data))/6e4):null;
-    h+=`<div class="card li" data-a="wdet" data-id="${w.id}"><b>${fmtDL(w.data)}</b><div class="muted small">${esc(w.sessioneNome)} · ${esc(w.schedaNome)} · ${w.esercizi.filter(isDone).length}/${w.esercizi.length} esercizi${dur?` · ${dur} min`:''}</div></div>`;
+    h+=`<div class="card li" data-a="wdet" data-id="${w.id}"><b>${fmtDL(w.data)}</b><div class="muted small">${esc(w.sessioneNome)} · ${esc(w.schedaNome)} · ${w.esercizi.filter(isDone).length}/${w.esercizi.length} esercizi${dur?` · ${dur} min`:''}</div>${w.nota?`<div class="small ntag">📝 ${esc(w.nota)}</div>`:''}${w.esercizi.some(e=>e.nota&&e.nota.trim())?'<div class="small ntag">📝 note sugli esercizi</div>':''}</div>`;
   });
   return{t:'Storico',h};
 };
@@ -629,7 +645,7 @@ V.dettaglio=id=>{
   const w=S.workouts.find(x=>x.id===id);if(!w)return V.storico();
   const dur=w.fine?Math.round((new Date(w.fine)-new Date(w.data))/6e4):null;
   let h=`<div class="card"><h2>${fmtDL(w.data)}</h2><div class="muted">${esc(w.sessioneNome)} · ${esc(w.schedaNome)} · sett. ${w.settimana}${w.importato?'':' · ore '+fmtH(w.data)}${dur?` · ${dur} min`:''}</div>${w.nota?`<div style="margin-top:8px">📝 ${esc(w.nota)}</div>`:''}</div><div class="card">`;
-  w.esercizi.forEach(e=>{h+=`<div class="wline"><div class="exname" style="font-size:16px">${isDone(e)?'✓ ':''}${esc(e.nome)}</div><div class="small">${wLine(e)}</div>${impShort(e.imp)?`<div class="small muted">⚙ ${esc(impShort(e.imp))}</div>`:''}${e.nota?`<div class="small muted">📝 ${esc(e.nota)}</div>`:''}</div>`});
+  w.esercizi.forEach(e=>{h+=`<div class="wline"><div class="exname" style="font-size:16px">${isDone(e)?'✓ ':''}${esc(e.nome)}</div><div class="small">${wLine(e)}</div>${impShort(e.imp)?`<div class="small muted">⚙ ${esc(impShort(e.imp))}</div>`:''}${e.scelta==='su'?`<div class="small ntag">↑ prossima volta ${Array.isArray(e.next)?e.next.map(fmtKg).join('/'):fmtKg(e.next)} kg</div>`:e.scelta==='uguale'?'<div class="small muted">= prossima volta stesso peso</div>':''}${e.nota?`<div class="small ntag">📝 ${esc(e.nota)}</div>`:''}</div>`});
   h+=`</div><button class="btn ghost" data-a="wdel" data-id="${w.id}">Elimina questo allenamento</button>`;
   return{t:'Allenamento',h,back:'storico'};
 };
@@ -795,6 +811,9 @@ document.addEventListener('click',async ev=>{
   case'ppeso':{const s=e.sets[j],base=s.peso??(j>0?e.sets[j-1].peso:null)??0;s.peso=Math.max(0,r2(base+d*S.set.passo));for(let k=j+1;k<e.sets.length;k++)if(e.sets[k].peso==null)e.sets[k].peso=s.peso;e.touched=true;saveCur();rr();break}
   case'set':{e.sets[j].f=!e.sets[j].f;saveCur();if(e.sets[j].f&&isDone(e)){S.open=nextOpen(i);rr();if(S.open>=0)scrollToEx(S.open)}else rr();break}
   case'cfatto':e.cardio.f=!e.cardio.f;saveCur();if(e.cardio.f){S.open=nextOpen(i);rr();if(S.open>=0)scrollToEx(S.open)}else rr();break;
+  case'scelta':{const v=el.dataset.v;e.scelta=e.scelta===v?null:v;if(e.scelta==='su'){const st=S.set.passo;e.next=e.tipo==='piramide'?e.sets.map(s=>r2((s.peso||0)+st)):r2((e.peso||0)+st)}else delete e.next;saveCur();rr();break}
+  case'nextp':{const st=d*S.set.passo;e.next=Array.isArray(e.next)?e.next.map(x=>Math.max(0,r2(x+st))):Math.max(0,r2(e.next+st));saveCur();rr();break}
+  case'notaoff':e.notaOff=true;saveCur();rr();break;
   case'att':e.cardio.attrezzo=el.dataset.v;e.touched=true;saveCur();rr();break;
   case'rest':startTimer(+el.dataset.s,'Recupero');break;
   case'tempo':startTimer(+el.dataset.s,e.nome);break;
@@ -853,7 +872,7 @@ document.addEventListener('change',ev=>{
   const el=ev.target,f=el.dataset.f;
   const i=+el.dataset.i,sum=()=>{const x=document.querySelector(`#ex${i} .exh .small`);if(x)x.innerHTML=exSum(S.cur.esercizi[i])};
   if(f==='ppeso'){const e=S.cur.esercizi[i],j=+el.dataset.j,v=e.sets[j].peso;for(let k=j+1;k<e.sets.length;k++)if(e.sets[k].peso==null){e.sets[k].peso=v;const inp=document.querySelector(`[data-f=ppeso][data-i="${i}"][data-j="${k}"]`);if(inp)inp.value=v??''}saveCur();sum()}
-  else if(f==='peso'||f==='imp'||f==='card')sum();
+  else if(f==='peso'||f==='imp'||f==='card'||f==='nota')sum();
   else if(f==='ed'&&el.dataset.rr)rr();
   else if(f==='pk'){S.ui.pk=el.value;rr()}
   else if(f==='sel'){S.ui.sel=+el.value;rr()}
