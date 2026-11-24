@@ -150,7 +150,7 @@ table.t{width:100%;border-collapse:collapse;font-size:15px;margin-top:8px}
 <input type="file" id="ffoto" accept="image/*" hidden>
 <script>
 'use strict';
-const APPV='1.12';
+const APPV='1.13';
 /* ---------- utilità ---------- */
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -443,19 +443,22 @@ const T={end:0,tot:0,iv:null,hide:null,label:''};
 let actx;
 function unlockAudio(){try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();actx.resume()}catch(e){}}
 function beep(){try{if(!actx)return;const t0=actx.currentTime;[0,.35,.7].forEach(dt=>{const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=880;o.connect(g);g.connect(actx.destination);g.gain.setValueAtTime(.0001,t0+dt);g.gain.exponentialRampToValueAtTime(.35,t0+dt+.02);g.gain.exponentialRampToValueAtTime(.0001,t0+dt+.25);o.start(t0+dt);o.stop(t0+dt+.27)})}catch(e){}}
+function swMsg(m){try{if(navigator.serviceWorker)navigator.serviceWorker.ready.then(r=>r.active&&r.active.postMessage(m))}catch(e){}}
+function swTimer(){swMsg({t:'timer',end:T.end,title:T.label==='Recupero'?'Recupero finito':T.label+': tempo!',body:T.label==='Recupero'?'Vai con la prossima serie 💪':'Fatto 💪'})}
+function askNotif(){try{if('Notification'in window&&Notification.permission==='default')Notification.requestPermission().then(()=>{if(S.view==='opzioni')rr()})}catch(e){}}
 function startTimer(sec,label){
-  unlockAudio();clearInterval(T.iv);clearTimeout(T.hide);T.tot=sec;T.end=Date.now()+sec*1000;T.label=label;
+  unlockAudio();askNotif();clearInterval(T.iv);clearTimeout(T.hide);T.tot=sec;T.end=Date.now()+sec*1000;T.label=label;
   const el=$('#timer');el.hidden=false;el.classList.remove('end');$('#tlab').textContent=label;document.body.classList.add('tm');
-  T.iv=setInterval(tick,250);tick();
+  T.iv=setInterval(tick,250);tick();swTimer();
 }
 function tick(){
   const left=Math.max(0,(T.end-Date.now())/1000);
   $('#tt').textContent=fmtSec(Math.ceil(left));$('#tbar').style.width=(T.tot?Math.min(100,(1-left/T.tot)*100):0)+'%';
   if(left<=0&&T.iv){clearInterval(T.iv);T.iv=null;$('#timer').classList.add('end');$('#tlab').textContent=T.label==='Recupero'?'Recupero finito: vai!':T.label+': tempo!';
-    if(navigator.vibrate)navigator.vibrate([500,200,500,200,800]);T.hide=setTimeout(stopTimer,12000)}
+    if(navigator.vibrate&&Date.now()-T.end<3000)navigator.vibrate([500,200,500,200,800]);T.hide=setTimeout(stopTimer,12000)}
 }
-function stopTimer(){clearInterval(T.iv);T.iv=null;clearTimeout(T.hide);$('#timer').hidden=true;document.body.classList.remove('tm')}
-function tmAdd(d){if(!T.iv){if(d>0)startTimer(d,T.label||'Recupero');return}T.end=Math.max(Date.now(),T.end+d*1000);T.tot=Math.max(1,T.tot+d);tick()}
+function stopTimer(){if(T.iv)swMsg({t:'stop'});clearInterval(T.iv);T.iv=null;clearTimeout(T.hide);$('#timer').hidden=true;document.body.classList.remove('tm')}
+function tmAdd(d){if(!T.iv){if(d>0)startTimer(d,T.label||'Recupero');return}T.end=Math.max(Date.now(),T.end+d*1000);T.tot=Math.max(1,T.tot+d);tick();if(T.iv)swTimer()}
 let wl=null;
 async function wake(){if(!S.cur||wl||!('wakeLock'in navigator))return;try{wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}catch(e){}}
 function releaseWake(){if(wl){wl.release();wl=null}}
@@ -697,6 +700,8 @@ V.opzioni=()=>{
   <div class="muted small" style="margin-top:8px">Il backup contiene schede, storico, pesi e impostazioni delle macchine.</div></div>`;
   const sa=matchMedia('(display-mode: standalone)').matches;
   if(!sa)h+=`<div class="card"><h3>Installa</h3>${S.inst?'<button class="btn pri" data-a="install">Installa sulla schermata Home</button>':'<div class="muted">In Chrome: menu ⋮ → <b>Aggiungi a schermata Home</b> / <b>Installa app</b>.</div>'}</div>`;
+  const np='Notification'in window?Notification.permission:'na';
+  h+=`<div class="card"><h3>Timer con app chiusa</h3>${np==='granted'?'<div class="muted small">Attivo: se esci dall’app, a fine recupero arriva una notifica che vibra.</div>':np==='denied'?'<div class="warn" style="margin-top:0">Notifiche bloccate. Riattivale da Impostazioni Android → App → Chrome → Notifiche (o tieni premuta l’icona dell’app → Info app → Notifiche).</div>':np==='na'?'<div class="muted small">Non disponibile su questo browser.</div>':'<div class="muted small">Serve il permesso per le notifiche.</div><button class="btn pri" data-a="notif">Attiva</button>'}</div>`;
   h+=`<div class="card"><h3>App</h3><div class="muted small">Versione ${APPV} · dati salvati solo su questo telefono${S.persist?' (archivio protetto)':''}</div><button class="btn" data-a="aggiorna">Cerca aggiornamenti</button></div>`;
   return{t:'Opzioni',h};
 };
@@ -828,6 +833,7 @@ document.addEventListener('click',async ev=>{
   case'esporta':{const p=S.plans.find(x=>x.id===id);await shareOrDownload(`${p.id}.json`,JSON.stringify(cleanPlan(p),null,2),true);break}
   case'elimina':{const p=S.plans.find(x=>x.id===id);if(!confirm(`Eliminare "${p.nome}"?\nGli allenamenti nello storico restano.`))return;await dbDel('plans',id);S.plans=S.plans.filter(x=>x.id!==id);if(S.set.activeId===id){S.set.activeId=(activePlan()||{}).id||null;await saveSet()}go('schede');break}
   case'setwk':{const p=activePlan(),wk=weekOf(p),v=parseInt(prompt('In che settimana della scheda sei?',wk),10);if(v>0&&v!==wk){p.offsetSett=(p.offsetSett||0)+v-wk;await dbPut('plans',p);toast('Settimana '+v);rr()}break}
+  case'notif':askNotif();break;
   case'import':$('#fimp').click();break;
   case'foto':$('#ffoto').click();break;
   case'cpPrompt':await copyText(fotoPrompt());break;
